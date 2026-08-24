@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+corrections.json
+training/data/raw/
+training/data/lora/
+training/adapters/
+training/*.log
+.DS_Store
