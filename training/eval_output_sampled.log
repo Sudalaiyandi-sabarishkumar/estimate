@@ -1,0 +1,56 @@
+Loading base model...
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 1783.21it/s]
+Loading fine-tuned (base + adapter)...
+Fetching 9 files:   0%|          | 0/9 [00:00<?, ?it/s]Fetching 9 files: 100%|██████████| 9/9 [00:00<00:00, 1867.27it/s]
+Building Scenario A/B from live Azure DevOps data...
+
+=== BASE: held-out test.jsonl (18 examples) ===
+  breakdown_chat: 1/4 correct
+  dependency_reasoning: 5/8 correct
+  breakdown_json: 6/6 correct
+
+=== FINE-TUNED: held-out test.jsonl (18 examples) ===
+  breakdown_chat: 4/4 correct
+  dependency_reasoning: 4/8 correct
+  breakdown_json: 6/6 correct
+
+=== BASE: Scenario A (backend correction), 5 runs ===
+  run 1: FAIL
+  run 2: FAIL
+  run 3: FAIL
+  run 4: FAIL
+  run 5: FAIL
+  Scenario A: 0/5
+
+=== BASE: Scenario B (dependency direction), 5 runs ===
+  run 1: FAIL -- 'xact point Item 97060\'s flow ends (the "Get started" page), so Item 97060 must be delivered first. The formal ADO dependency link exists between them.'
+  run 2: FAIL -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  run 3: FAIL -- "xact point Item 97057's flow ends (the 'Get started' page), so Item 97057 must be delivered first. The formal ADO dependency link exists between them."
+  run 4: PASS -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  run 5: PASS -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  Scenario B: 2/5
+
+=== FINE-TUNED: Scenario A (backend correction), 5 runs ===
+  run 1: FAIL
+  run 2: FAIL
+  run 3: FAIL
+  run 4: PASS
+  run 5: FAIL
+  Scenario A: 1/5
+
+=== FINE-TUNED: Scenario B (dependency direction), 5 runs ===
+  run 1: PASS -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  run 2: PASS -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  run 3: PASS -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  run 4: PASS -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  run 5: PASS -- 'st be delivered first. No formal ADO dependency link exists between them, only parent/child ties to their own Features; worth adding an explicit link.'
+  Scenario B: 5/5
+
+============================================================
+SUMMARY
+============================================================
+Scenario A (backend correction honored): base 0/5 -> tuned 1/5
+Scenario B (correct dependency direction): base 2/5 -> tuned 5/5
+Held-out breakdown_json: base 6/6 -> tuned 6/6
+Held-out dependency_reasoning: base 5/8 -> tuned 4/8
+Held-out breakdown_chat: base 1/4 -> tuned 4/4
