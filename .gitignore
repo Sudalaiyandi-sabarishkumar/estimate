@@ -6,3 +6,4 @@ training/data/lora/
 training/adapters/
 training/*.log
 .DS_Store
+.repo_cache/

@@ -268,20 +268,32 @@ def build_item_corrections_block(notes: list) -> str:
     return "\n".join(lines)
 
 
-def call_ollama(messages: list, model: str = DEFAULT_MODEL, show_progress: bool = True) -> str:
+def call_ollama(messages: list, model: str = DEFAULT_MODEL, show_progress: bool = True,
+                 num_ctx: int = None, temperature: float = 0.3) -> str:
     """Streams the response from Ollama. When show_progress is True, tokens are
     printed to stdout as they arrive so a slow local generation doesn't look
-    like a hang; the full text is still returned at the end either way."""
+    like a hang; the full text is still returned at the end either way.
+
+    num_ctx overrides Ollama's default context window (4096) for this call only
+    -- pass it for requests with heavier context (e.g. codebase-aware estimates)
+    without affecting lighter commands that don't pass it.
+
+    temperature defaults to 0.3 (natural-sounding estimates). Pass 0 for a
+    categorical yes/no-style decision (e.g. "is this already implemented?")
+    where you want the single most likely answer every time, not a sampled one."""
+    options = {
+        "temperature": temperature,
+        "repeat_penalty": 1.3,
+        "repeat_last_n": 64,
+        "num_predict": 1200,
+    }
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     payload = {
         "model": model,
         "messages": messages,
         "stream": True,
-        "options": {
-            "temperature": 0.3,
-            "repeat_penalty": 1.3,
-            "repeat_last_n": 64,
-            "num_predict": 1200,
-        },
+        "options": options,
     }
     req = urllib.request.Request(
         OLLAMA_URL,

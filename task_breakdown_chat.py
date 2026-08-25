@@ -42,7 +42,40 @@ from ado_common import (
     build_corrections_context,
     corrections_for_item,
     build_item_corrections_block,
+    strip_html,
 )
+from codebase_context import (
+    clone_or_update_repo,
+    build_codebase_context,
+    build_architecture_overview,
+    CODEBASE_NUM_CTX,
+    CODEBASE_CONTEXT_CHAR_BUDGET,
+    ARCHITECTURE_CHAR_BUDGET,
+)
+
+REPO_ROLES = ["frontend", "backend", "mobile"]
+
+# BAs on this team tag ticket titles with the platform, e.g. "[Mobile] As a
+# User, I want...". Backend is included in both, since a feature almost
+# always needs it regardless of which client platform it's on.
+PLATFORM_ROLE_MAP = {
+    "mobile": (["mobile", "backend"], "Mobile"),
+    "ios": (["mobile", "backend"], "Mobile"),
+    "android": (["mobile", "backend"], "Mobile"),
+    "web": (["frontend", "backend"], "Web"),
+    "frontend": (["frontend", "backend"], "Web"),
+}
+
+
+def relevant_roles_for_title(title: str):
+    """Returns (roles, platform_label). platform_label is None when the title
+    has no recognizable '[Tag]' platform prefix, in which case all three
+    roles are requested -- the safest default when the platform can't be
+    determined rather than guessing wrong and silently skipping a real repo."""
+    m = re.match(r"^\s*\[([^\]]+)\]", title or "")
+    if m and m.group(1).strip().lower() in PLATFORM_ROLE_MAP:
+        return PLATFORM_ROLE_MAP[m.group(1).strip().lower()]
+    return list(REPO_ROLES), None
 
 BASE_SYSTEM_PROMPT = """You are a senior engineering lead helping a developer plan and \
 estimate real Azure DevOps work items, in a back-and-forth conversation.
@@ -120,9 +153,210 @@ one — and whether that's formally recorded in ADO or only implied by the requi
 ID_RE = re.compile(r"\b\d{4,}\b")
 CORRECT_RE = re.compile(r"^(?:correct|correction)\b[:\s]*(.*)$", re.IGNORECASE)
 DEPENDENCY_RE = re.compile(r"\bdepend", re.IGNORECASE)
+ESTIMATE_RE = re.compile(r"^estimate\b", re.IGNORECASE)
+SET_REPO_RE = re.compile(r"^(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNORECASE)
+SET_ORG_RE = re.compile(r"^(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
 
 
-def load_item(messages: list, user_input: str, pat: str, loaded_ids: set):
+def prompt_org_project(org_state: dict):
+    """Session-level org/project selection: confirm the current value if one
+    is set (seeded from ado_common's DEFAULT_ORG/DEFAULT_PROJECT), otherwise
+    ask for it -- so this tool isn't hardwired to one specific ADO project."""
+    if org_state.get("org") and org_state.get("project"):
+        print(f"Currently set: {org_state['org']} / {org_state['project']}")
+        keep = input("Use this organisation/project? (Y/n): ").strip().lower()
+        if keep in ("n", "no"):
+            org_state["org"] = None
+            org_state["project"] = None
+    if not org_state.get("org"):
+        org_state["org"] = input("Azure DevOps organisation (e.g. rootquotient): ").strip()
+        org_state["project"] = input("Azure DevOps project (e.g. Buddhi Mantra): ").strip()
+
+
+def _role_resolved(repo_state: dict, role: str) -> bool:
+    """A role counts as settled for the session once it has a URL, or was
+    explicitly skipped -- either way it shouldn't be re-asked every time."""
+    entry = repo_state.get(role, {})
+    return bool(entry.get("url")) or entry.get("skipped", False)
+
+
+def prompt_repos(repo_state: dict, roles: list):
+    """Session-level repo/branch selection for the given roles only --
+    confirm the current set if already resolved, otherwise ask for each.
+    Leaving a URL blank (or typing 'skip') skips that role entirely -- not
+    every team has all three repos. `roles` lets estimate_with_codebase pass
+    just the ones relevant to a given ticket's platform (e.g. skip asking
+    about Frontend for a ticket titled '[Mobile] ...')."""
+    if all(_role_resolved(repo_state, role) for role in roles):
+        print("Currently set:")
+        for role in roles:
+            r = repo_state[role]
+            shown = "(skipped)" if r.get("skipped") else f"{r['url']} @ {r['branch']}"
+            print(f"  {role.capitalize()}: {shown}")
+        keep = input("Use these repos/branches for this estimate? (Y/n): ").strip().lower()
+        if keep in ("n", "no"):
+            for role in roles:
+                repo_state[role] = {"url": None, "branch": None, "skipped": False}
+    for role in roles:
+        if not _role_resolved(repo_state, role):
+            url = input(f"{role.capitalize()} repo URL "
+                        f"(e.g. https://dev.azure.com/org/project/_git/repo, "
+                        f"or leave blank to skip): ").strip()
+            if not url or url.lower() == "skip":
+                repo_state[role] = {"url": None, "branch": None, "skipped": True}
+                continue
+            branch = input(f"{role.capitalize()} branch (e.g. release/stable): ").strip()
+            repo_state[role] = {"url": url, "branch": branch, "skipped": False}
+
+# Split into two calls on purpose: the implementation-status question is a
+# categorical decision (is it built or not?) that needs to be answered the
+# same way every time, so it runs at temperature=0 (deterministic) in its own
+# call. The estimate/analysis that may follow is free-text and benefits from
+# the normal temperature=0.3 for natural-sounding output. Mixing the two in
+# one sampled call let the model's answer to the yes/no question drift
+# between runs even when the underlying grepped evidence never changed.
+def build_status_check_instruction(relevant_roles: list) -> str:
+    section_names = ", ".join(f"'=== {r.upper()} REPO ==='" for r in relevant_roles)
+    return (
+    "Based ONLY on the CODEBASE CONTEXT above (not the ticket's own state/comments), "
+    "determine whether this SPECIFIC user story's functionality is already built. "
+    f"CODEBASE CONTEXT is divided into {section_names} section(s) — only the repos "
+    "relevant to this ticket's platform are included, and a feature can be fully "
+    "implemented in just one of them even if another shows nothing relevant. "
+    "A section marked '(skipped — no repo provided for this role, not checked)' means "
+    "that layer was never looked at, which is NOT the same as evidence it doesn't exist "
+    "— base your verdict only on the sections that were actually checked, and don't "
+    "treat a skipped section as proof anything is missing.\n\n"
+    "Being thematically related is NOT enough. A file that only displays static text, "
+    "labels, or images about the same topic (e.g. an instructions/introduction screen "
+    "that just names or lists the feature) does NOT count as implementing it. Real "
+    "matching code must perform the actual behavior the acceptance criteria describes "
+    "(the specific calculation, interactive flow, form fields, or business logic) — not "
+    "just be about the same subject.\n\n"
+    "Step 1: Name ONE concrete, checkable requirement from the acceptance criteria (a "
+    "specific calculation, interaction, or piece of logic — not just a screen/topic name).\n"
+    "Step 2: Check whether the CODEBASE CONTEXT's actual code snippets (not just file or "
+    "class names) perform that requirement.\n"
+    "Step 3: Decide based on Step 2 —\n"
+    "- The snippets show the real required behavior fully -> Already Implemented.\n"
+    "- The snippets show some of it but not all (e.g. only a related instructional/intro "
+    "screen exists, but not the interactive/calculated logic itself) -> Partially Implemented.\n"
+    "- CODEBASE CONTEXT says no files were found, OR the files it lists are only "
+    "thematically related without performing the actual required behavior -> Not Implemented.\n\n"
+    "You are NOT allowed to write \"no matching code found\" as your EVIDENCE if the "
+    "CODEBASE CONTEXT above actually lists file paths — if you conclude Not Implemented "
+    "despite files being listed, your EVIDENCE must name those files and explain "
+    "specifically why they don't perform the required behavior (e.g. \"only an "
+    "introductory screen listing pillar names exists, not the interactive scored "
+    "assessment logic\"), not simply claim nothing was found.\n\n"
+    "Respond with ONLY these two lines, nothing else, no other commentary:\n"
+    "IMPLEMENTATION STATUS: <Already Implemented | Partially Implemented | Not Implemented>\n"
+    "EVIDENCE: <one sentence naming the specific requirement you checked and what the code "
+    "actually does or doesn't do about it>"
+)
+
+STATUS_LINE_RE = re.compile(
+    r"IMPLEMENTATION STATUS\**:?\**\s*(Already Implemented|Partially Implemented|Not Implemented)",
+    re.IGNORECASE,
+)
+EVIDENCE_LINE_RE = re.compile(r"EVIDENCE\**:?\**\s*(.+)", re.IGNORECASE)
+
+
+def parse_status(reply: str):
+    """Returns (status, evidence). status is None if the reply didn't follow
+    the required format at all -- callers should treat that as 'unknown' and
+    default to the safe path (full estimate) rather than silently skipping it."""
+    m = STATUS_LINE_RE.search(reply or "")
+    status = m.group(1) if m else None
+    e = EVIDENCE_LINE_RE.search(reply or "")
+    evidence = e.group(1).strip() if e else ""
+    return status, evidence
+
+
+def build_estimate_instruction(item_id: str, status: str, evidence: str,
+                                scope_instruction: str, relevant_roles: list) -> str:
+    """Categories offered for the hour breakdown are built strictly from
+    relevant_roles -- e.g. 'Frontend' is never even mentioned for a
+    Mobile-only ticket. Telling the model "Frontend doesn't apply, don't use
+    it" while still listing it as an available category didn't work reliably
+    (it kept giving Frontend hours anyway); not naming it as an option at all
+    is the structural fix."""
+    section_names = ", ".join(f"'=== {r.upper()} REPO ==='" for r in relevant_roles)
+    categories = [r.capitalize() for r in relevant_roles] + ["Testing"]
+    category_list = ", ".join(categories[:-1]) + f", and {categories[-1]}"
+
+    if "mobile" in relevant_roles and "frontend" in relevant_roles:
+        platform_note = (
+            " IMPORTANT — 'Frontend' here means ONLY the separate web repo, NOT "
+            "'client-side UI' in general; any screen/icon/button/UI logic for the "
+            "mobile app belongs under Mobile, never under Frontend, even though 'UI "
+            "work' might normally make you think 'Frontend'."
+        )
+    elif "mobile" in relevant_roles:
+        platform_note = (
+            " This ticket only involves Mobile and Backend — there is no Frontend "
+            "(web) repo in scope, so ALL UI/screen/icon work goes under Mobile; do "
+            "not create a separate Frontend category or heading at all."
+        )
+    elif "frontend" in relevant_roles:
+        platform_note = (
+            " This ticket only involves Frontend (web) and Backend — there is no "
+            "Mobile repo in scope, so do not create a separate Mobile category or "
+            "heading at all."
+        )
+    else:
+        platform_note = ""
+
+    return (
+        f"The implementation status for #{item_id} has already been determined:\n"
+        f"IMPLEMENTATION STATUS: {status}\n"
+        f"EVIDENCE: {evidence}\n\n"
+        f"Using the CODEBASE CONTEXT above together with the WORK ITEM CONTEXT, produce a "
+        f"codebase-aware estimate for #{item_id}. {scope_instruction}\n\n"
+        f"CODEBASE CONTEXT and ARCHITECTURE OVERVIEW are each divided into {section_names} "
+        f"section(s), from the real repo(s) relevant to this ticket's platform.{platform_note} "
+        f"A repo showing nothing relevant just means this feature doesn't touch that part "
+        f"of the stack, not that the analysis is incomplete.\n\n"
+        f"Before deciding there's no Backend work: check the BACKEND REPO section of "
+        f"ARCHITECTURE OVERVIEW above.\n"
+        f"- If it's marked '(skipped — no repo provided for this role, not checked)': you "
+        f"have NO evidence either way. Do NOT conclude 'no backend work needed' and do NOT "
+        f"invent a justification for skipping it (e.g. 'this only updates local state') "
+        f"unless the ticket itself is unambiguous that the feature is purely local/device-"
+        f"only with no login, account, or cross-session persistence involved anywhere in "
+        f"its wording. If the ticket gates the feature behind being logged in/registered, "
+        f"or implies the data should survive across sessions/devices/reinstalls (phrases "
+        f"like 'save for later', 'sync', 'my account'), treat that as a strong signal "
+        f"backend work IS needed even with zero code evidence, and write 'Backend: likely "
+        f"needed (backend repo not provided to confirm — assumed from account/persistence "
+        f"requirements in the ticket)' with a real hour estimate, not 'N/A' or 'not required'.\n"
+        f"- If it was actually checked: CODEBASE CONTEXT is grepped from the ticket's own "
+        f"wording, so for a brand-new feature it will naturally show little or nothing about "
+        f"backend needs -- that absence does NOT mean no backend work is needed either. If "
+        f"the backend repo already has an API/service/repository layer, and this feature "
+        f"involves data that should persist per-user or across sessions/devices, assume it "
+        f"needs a backend endpoint following that same established pattern, even with no "
+        f"existing code for this specific feature yet.\n\n"
+        f"Give hour estimates (S = under 4h, M = 4-16h, L = over 16h) for one mid-level "
+        f"engineer, grouped ONLY by {category_list} — do not add any other category, even "
+        f"one you might normally expect for a software estimate. If a repo for one of "
+        f"these categories was skipped/not provided, still include that category's heading "
+        f"and say estimation wasn't possible for it rather than omitting it silently.\n\n"
+        f"Then give a CODEBASE IMPACT ANALYSIS, as its own labeled section, covering exactly "
+        f"these six points:\n"
+        f"1. Which existing modules/components/services will be affected.\n"
+        f"2. Whether this could impact existing functionality.\n"
+        f"3. Potential regression areas.\n"
+        f"4. Dependencies or areas that may require changes.\n"
+        f"5. Technical risks/challenges identified from the current implementation.\n"
+        f"6. Additional work not obvious from the user story alone.\n\n"
+        f"Only reference files/modules that actually appear in the CODEBASE CONTEXT above — "
+        f"if it didn't surface anything relevant to a point, say so rather than inventing "
+        f"file or module names."
+    )
+
+
+def load_item(messages: list, user_input: str, pat: str, loaded_ids: set, org_state: dict):
     """Returns the loaded item id on success, None on failure."""
     match = ID_RE.search(user_input)
     if not match:
@@ -130,7 +364,7 @@ def load_item(messages: list, user_input: str, pat: str, loaded_ids: set):
         return None
     item_id = match.group()
     print(f"Loading work item #{item_id} from Azure DevOps...")
-    work_item, error = fetch_work_item(DEFAULT_ORG, DEFAULT_PROJECT, item_id, pat)
+    work_item, error = fetch_work_item(org_state["org"], org_state["project"], item_id, pat)
     if work_item is None:
         print(error + "\n")
         # Put the failure in the conversation so a follow-up "why did that fail?"
@@ -139,7 +373,7 @@ def load_item(messages: list, user_input: str, pat: str, loaded_ids: set):
                           "content": f"(Attempted to load work item #{item_id} but it failed: {error})"})
         return None
     loaded_ids.add(item_id)
-    related = fetch_related_context(DEFAULT_ORG, DEFAULT_PROJECT, work_item, pat)
+    related = fetch_related_context(org_state["org"], org_state["project"], work_item, pat)
     context = build_context_message(work_item, item_id, related)
 
     item_corrections = build_item_corrections_block(corrections_for_item(load_corrections(), item_id))
@@ -164,18 +398,18 @@ def load_item(messages: list, user_input: str, pat: str, loaded_ids: set):
     return item_id
 
 
-def analyse_dependency(messages: list, id_a: str, id_b: str, pat: str, loaded_ids: set):
+def analyse_dependency(messages: list, id_a: str, id_b: str, pat: str, loaded_ids: set, org_state: dict):
     """Fetches both items fresh and asks the model to reason about their
     dependency using the worked method in BASE_SYSTEM_PROMPT."""
     print(f"Loading work items #{id_a} and #{id_b} from Azure DevOps...")
     contexts = []
     for item_id in (id_a, id_b):
-        work_item, error = fetch_work_item(DEFAULT_ORG, DEFAULT_PROJECT, item_id, pat)
+        work_item, error = fetch_work_item(org_state["org"], org_state["project"], item_id, pat)
         if work_item is None:
             print(error + "\n")
             return
         loaded_ids.add(item_id)
-        related = fetch_related_context(DEFAULT_ORG, DEFAULT_PROJECT, work_item, pat)
+        related = fetch_related_context(org_state["org"], org_state["project"], work_item, pat)
         contexts.append(build_context_message(work_item, item_id, related))
 
     instruction = (
@@ -202,13 +436,157 @@ def analyse_dependency(messages: list, id_a: str, id_b: str, pat: str, loaded_id
     print()
 
 
+def estimate_with_codebase(messages: list, user_input: str, pat: str,
+                            loaded_ids: set, repo_state: dict, org_state: dict):
+    """Like load_item, but also clones the Frontend/Backend/Mobile repos (once
+    per session, cached after that) and greps each for terms from the ticket,
+    so the estimate accounts for the actual codebase, not just the ticket text."""
+    match = ID_RE.search(user_input)
+    if not match:
+        print("Couldn't find a work item number in that. Try: estimate 97061\n")
+        return
+    item_id = match.group()
+
+    # Fetch the ticket first (before asking about repos) so its title can
+    # decide which repos are even relevant -- a BA-tagged "[Mobile] ..." or
+    # "[Web] ..." title means we only need to ask about that platform's repo
+    # plus Backend, not all three every time.
+    print(f"Loading work item #{item_id} from Azure DevOps...")
+    work_item, error = fetch_work_item(org_state["org"], org_state["project"], item_id, pat)
+    if work_item is None:
+        print(error + "\n")
+        return
+    loaded_ids.add(item_id)
+    related = fetch_related_context(org_state["org"], org_state["project"], work_item, pat)
+    ticket_context = build_context_message(work_item, item_id, related)
+
+    fields = work_item.get("fields", {})
+    title = fields.get("System.Title", "")
+    search_text = title + " " + strip_html(fields.get("Microsoft.VSTS.Common.AcceptanceCriteria", ""))
+
+    relevant_roles, platform_label = relevant_roles_for_title(title)
+    if platform_label:
+        print(f"Ticket title indicates a {platform_label} task — will ask about "
+              f"{' and '.join(r.capitalize() for r in relevant_roles)} only.\n")
+    else:
+        print("Couldn't tell the platform from the ticket title — asking about all three repos.\n")
+
+    prompt_repos(repo_state, relevant_roles)
+
+    if all(repo_state[role].get("skipped") for role in relevant_roles):
+        print("No repos provided — falling back to a plain ticket-based breakdown "
+              "(same as 'load'), since there's nothing to check the codebase against.\n")
+        load_item(messages, f"load {item_id}", pat, loaded_ids, org_state)
+        return
+
+    # Each relevant repo gets a share of the overall context budget so
+    # multiple repos' worth of matches don't blow past CODEBASE_NUM_CTX the
+    # way one repo's full budget x N would.
+    per_repo_char_budget = CODEBASE_CONTEXT_CHAR_BUDGET // len(relevant_roles)
+    codebase_blocks = []
+    repo_paths = {}
+    # Irrelevant roles (e.g. Frontend on a Mobile-only ticket) are left out of
+    # the prompt entirely, not just marked "(not applicable)" -- the model kept
+    # giving Frontend hours anyway when it was merely told not to, so it's
+    # removed structurally instead of relying on that instruction being followed.
+    for role in relevant_roles:
+        r = repo_state[role]
+        if r.get("skipped"):
+            # Not the same as "grepped and found nothing" -- this layer was
+            # never checked at all, which matters for the status/backend
+            # reasoning below (absence of evidence isn't evidence of absence).
+            codebase_blocks.append(f"=== {role.upper()} REPO ===\n(skipped — no repo "
+                                    f"provided for this role, not checked)")
+            continue
+        print(f"Cloning/updating {role} repo: {r['url']} @ {r['branch']}...")
+        repo_path, error = clone_or_update_repo(r["url"], r["branch"], pat)
+        if repo_path is None:
+            print(f"Couldn't get the {role} repo: {error}\n")
+            # Clear so a typo'd URL/branch isn't silently reused on the next attempt.
+            repo_state[role] = {"url": None, "branch": None, "skipped": False}
+            return
+        repo_paths[role] = repo_path
+        print(f"Searching {role} repo for relevant files...")
+        block = build_codebase_context(repo_path, search_text, char_budget=per_repo_char_budget, title=title)
+        codebase_blocks.append(f"=== {role.upper()} REPO ===\n{block}")
+    codebase_block = "\n\n".join(codebase_blocks)
+
+    # Call 1: deterministic (temperature=0) yes/no-style classification, kept
+    # separate from the free-text estimate below -- this categorical decision
+    # needs to come out the same way every time given the same evidence, which
+    # sampling at the normal temperature does not reliably do (see conversation).
+    status_prompt = f"{ticket_context}\n\n{codebase_block}\n\n{build_status_check_instruction(relevant_roles)}"
+    status_messages = [messages[0], {"role": "user", "content": status_prompt}]
+    print("Checking implementation status...")
+    status_reply = call_ollama(status_messages, DEFAULT_MODEL, num_ctx=CODEBASE_NUM_CTX,
+                                temperature=0, show_progress=False)
+    status, evidence = parse_status(status_reply)
+    if status is None:
+        status, evidence = "Not Implemented", "couldn't parse a clear status from the model -- defaulting to a full estimate rather than silently skipping it"
+
+    print(f"IMPLEMENTATION STATUS: {status}")
+    print(f"EVIDENCE: {evidence}\n")
+
+    if status.lower() == "already implemented":
+        messages.append({"role": "user", "content": status_prompt})
+        messages.append({"role": "assistant", "content": status_reply})
+        return
+
+    # Call 2: only reached for Not Implemented / Partially Implemented. Normal
+    # sampling temperature is fine here -- it's free-text estimate wording,
+    # not a categorical decision.
+    scope_instruction = (
+        "Estimate the FULL feature from scratch."
+        if status.lower() == "not implemented"
+        else "Estimate ONLY the missing/remaining work, not the whole feature -- "
+             "say explicitly what's already done vs. what's left."
+    )
+    # A new/missing feature's ticket vocabulary can't match its own
+    # not-yet-written backend code, so build_codebase_context alone is blind
+    # to whether backend work is needed -- add each repo's general API/service
+    # layer as a separate signal so the model can reason from established
+    # patterns (e.g. "the backend repo already exposes endpoints elsewhere")
+    # instead of just the absence of feature-specific matches.
+    per_repo_arch_budget = ARCHITECTURE_CHAR_BUDGET // len(relevant_roles)
+    architecture_blocks = []
+    for role in relevant_roles:
+        if role not in repo_paths:
+            architecture_blocks.append(f"=== {role.upper()} REPO ===\n(skipped — no repo "
+                                        f"provided for this role, not checked)")
+            continue
+        arch = build_architecture_overview(repo_paths[role], char_budget=per_repo_arch_budget)
+        architecture_blocks.append(f"=== {role.upper()} REPO ===\n{arch}")
+    architecture_block = "\n\n".join(architecture_blocks)
+    instruction = build_estimate_instruction(
+        item_id=item_id, status=status, evidence=evidence,
+        scope_instruction=scope_instruction, relevant_roles=relevant_roles)
+    user_turn = f"{ticket_context}\n\n{codebase_block}\n\n{architecture_block}\n\n{instruction}"
+
+    # Bounded call: system prompt + this turn only, not the full accumulated
+    # session history, so this heaviest command's context usage doesn't grow
+    # with how many tickets were loaded earlier in the session.
+    call_messages = [messages[0], {"role": "user", "content": user_turn}]
+    print()
+    reply = call_ollama(call_messages, DEFAULT_MODEL, num_ctx=CODEBASE_NUM_CTX)
+    if reply is not None:
+        messages.append({"role": "user", "content": user_turn})
+        messages.append({"role": "assistant", "content": reply})
+    print()
+
+
 def main():
     pat = os.environ.get("AZURE_DEVOPS_PAT")
     if not pat:
         sys.exit("AZURE_DEVOPS_PAT is not set. Run: export AZURE_DEVOPS_PAT=\"...\"")
 
+    # Seeded from ado_common's constants so an existing setup still gets a
+    # one-keystroke confirm instead of being forced to retype it, while a
+    # fresh setup for a different org/project just gets asked directly.
+    org_state = {"org": DEFAULT_ORG, "project": DEFAULT_PROJECT}
+    prompt_org_project(org_state)
+
     system_prompt = BASE_SYSTEM_PROMPT
-    examples = fetch_reference_examples(DEFAULT_ORG, DEFAULT_PROJECT, pat)
+    examples = fetch_reference_examples(org_state["org"], org_state["project"], pat)
     if examples:
         system_prompt += "\n\n" + examples
     corrections_context = build_corrections_context(load_corrections())
@@ -218,12 +596,15 @@ def main():
     messages = [{"role": "system", "content": system_prompt}]
     loaded_ids = set()
     current_id = None
+    repo_state = {role: {"url": None, "branch": None} for role in REPO_ROLES}
 
     print("task-breakdown chat. Commands: 'load <id>' to load/switch a work item, "
-          "'analyse dependency between <id> and <id>', "
+          "'estimate <id>' for a codebase-aware estimate (prompts for Frontend/Backend/"
+          "Mobile repos once), 'set repo' to change the repos, 'set org' to change the "
+          "organisation/project, 'analyse dependency between <id> and <id>', "
           "'correct <note>' to save a correction for future sessions, 'exit' to quit.")
     if len(sys.argv) > 1:
-        current_id = load_item(messages, sys.argv[1], pat, loaded_ids) or current_id
+        current_id = load_item(messages, sys.argv[1], pat, loaded_ids, org_state) or current_id
     else:
         print("No work item loaded yet. Type 'load <id>' or ask a general question.\n")
 
@@ -238,18 +619,35 @@ def main():
         if user_input.lower() in ("exit", "quit"):
             break
         try:
+            if SET_REPO_RE.match(user_input):
+                for role in REPO_ROLES:
+                    repo_state[role] = {"url": None, "branch": None}
+                print("Repos cleared — you'll be prompted again on the next 'estimate'.\n")
+                continue
+
+            if SET_ORG_RE.match(user_input):
+                org_state["org"] = None
+                org_state["project"] = None
+                prompt_org_project(org_state)
+                print()
+                continue
+
+            if ESTIMATE_RE.match(user_input):
+                estimate_with_codebase(messages, user_input, pat, loaded_ids, repo_state, org_state)
+                continue
+
             # Checked ahead of the load branch: "load 97057 and analyse dependency
             # between 97057 and 97061" mentions "load" too, but dependency intent wins.
             dep_ids = ID_RE.findall(user_input)
             if DEPENDENCY_RE.search(user_input) and len(dep_ids) >= 2:
-                analyse_dependency(messages, dep_ids[0], dep_ids[1], pat, loaded_ids)
+                analyse_dependency(messages, dep_ids[0], dep_ids[1], pat, loaded_ids, org_state)
                 continue
 
             # Treat it as a load request whenever "load" and a work item number
             # appear together anywhere in the message, not just as a prefix —
             # covers phrasing like "now load workitem 97061 and give the title".
             if re.search(r"\bload\b", user_input, re.IGNORECASE) and ID_RE.search(user_input):
-                current_id = load_item(messages, user_input, pat, loaded_ids) or current_id
+                current_id = load_item(messages, user_input, pat, loaded_ids, org_state) or current_id
                 continue
 
             correct_match = CORRECT_RE.match(user_input)
