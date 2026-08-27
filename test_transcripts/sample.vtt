@@ -1,0 +1,37 @@
+WEBVTT
+
+1
+00:00:01.000 --> 00:00:05.000
+<v Sudalaiyandi>Let's start the governance call. First item is the client escalation from last week.</v>
+
+2
+00:00:05.500 --> 00:00:12.000
+<v Meena>The client escalation is resolved. I sent the RCA document yesterday and they acknowledged it.</v>
+
+3
+00:00:12.500 --> 00:00:20.000
+<v Sudalaiyandi>Good. Meena, can you also share that RCA with the internal team by tomorrow so everyone's aligned?</v>
+
+4
+00:00:20.500 --> 00:00:24.000
+<v Meena>Yes, I'll share it with the internal team tomorrow morning.</v>
+
+5
+00:00:24.500 --> 00:00:30.000
+Someone in the background mentioned budget concerns but it wasn't clear who.
+
+6
+00:00:30.500 --> 00:00:40.000
+<v Sudalaiyandi>Let's move to risks. Any new risks to flag for this sprint?</v>
+
+7
+00:00:40.500 --> 00:00:48.000
+<v Rahul>Yes — the third-party API we depend on is deprecating their v1 endpoint next month, we need to migrate.</v>
+
+8
+00:00:48.500 --> 00:00:55.000
+<v Sudalaiyandi>Rahul, please create a migration plan and share it by end of next week.</v>
+
+9
+00:00:55.500 --> 00:00:58.000
+<v Rahul>Sounds good, I'll have the plan ready by next Friday.</v>

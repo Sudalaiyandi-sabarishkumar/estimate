@@ -1,0 +1,10 @@
+Sudalaiyandi: Okay let's get started with today's scrum. Priya, can you give a quick update on the login flow?
+Priya: Sure. The login screen is done and merged. I'm still working on the forgot-password flow, should be done by Thursday.
+Sudalaiyandi: Great. Any blockers?
+Priya: Yeah actually — I'm blocked on the design for the error states. Can someone ping the design team?
+Sudalaiyandi: I'll reach out to the design team today and get that sorted.
+Arjun: On my side, the payment integration is going okay. I found an issue with the Razorpay webhook signature verification though, it's failing intermittently.
+Sudalaiyandi: That sounds important. Arjun, can you write up the details and I'll loop in the backend lead tomorrow morning.
+Arjun: Will do, I'll have the writeup ready by end of day.
+Priya: Also just a heads up, we're planning to upgrade the Flutter SDK next sprint, wanted to flag that in case it affects anyone's branches.
+Sudalaiyandi: Noted, thanks for the heads up. Anything else? Okay, let's wrap up here. Thanks everyone.

@@ -7,3 +7,4 @@ training/adapters/
 training/*.log
 .DS_Store
 .repo_cache/
+mom_output/

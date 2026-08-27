@@ -52,6 +52,7 @@ from codebase_context import (
     CODEBASE_CONTEXT_CHAR_BUDGET,
     ARCHITECTURE_CHAR_BUDGET,
 )
+from transcript_utils import load_transcript, chunk_transcript
 
 REPO_ROLES = ["frontend", "backend", "mobile"]
 
@@ -156,6 +157,9 @@ DEPENDENCY_RE = re.compile(r"\bdepend", re.IGNORECASE)
 ESTIMATE_RE = re.compile(r"^estimate\b", re.IGNORECASE)
 SET_REPO_RE = re.compile(r"^(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNORECASE)
 SET_ORG_RE = re.compile(r"^(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
+MOM_RE = re.compile(r"^mom\s+(.+)$", re.IGNORECASE)
+MOM_CHUNK_CHAR_BUDGET = 20000
+MOM_NUM_CTX = 12288
 
 
 def prompt_org_project(org_state: dict):
@@ -436,6 +440,123 @@ def analyse_dependency(messages: list, id_a: str, id_b: str, pat: str, loaded_id
     print()
 
 
+# Phase 1 of the Governance & Scrum MoM + Action Items agent: reads a
+# manually-provided transcript file (e.g. exported from Teams as .vtt, or
+# plain .txt). Phase 2 -- once a Teams/M365 tenant admin enables Graph
+# transcript API access and grants an app OnlineMeetingTranscript.Read.All,
+# which is an organizational prerequisite outside this tool's control, not
+# something this code can do on its own -- will fetch the transcript
+# automatically instead of reading a file, but generate_mom() itself won't
+# need to change since it only cares about the resulting plain text.
+MOM_SYSTEM_PROMPT = """You are a professional meeting scribe producing Minutes of Meeting \
+(MoM) for a governance or scrum call, from a real transcript.
+
+Base everything ONLY on the transcript content you are given — never invent attendees, \
+decisions, or action items that weren't actually said.
+
+Owner labeling rule — the word "Unidentified" must NEVER appear on the same line as an \
+actual name, in any form, including in parentheses. Pick exactly one of these two forms, \
+nothing else:
+- The transcript names who said it (e.g. a line starting "Sudalaiyandi: I'll..." or \
+"Arjun: I'll...") -> write ONLY the bare name: "Owner: Sudalaiyandi". Correct examples: \
+"Owner: Arjun", "Owner: Priya". WRONG, never do this: "Owner: Unidentified speaker \
+(Sudalaiyandi)" -- if you know the name, "Unidentified" does not belong anywhere near it.
+- The transcript never names who said it at all -> write ONLY "Owner: Unidentified \
+speaker", with no name anywhere on that line.
+
+Action item rule: only count something as an ACTION ITEM if it's a real, concrete \
+commitment someone made or was assigned to DO something by a specific point in time or \
+before a next step — phrases like "I'll do X by Thursday" or "I'll send Y tomorrow" \
+qualify. A plain FYI/heads-up with no commitment attached (e.g. "just so you know, we're \
+planning to upgrade the SDK next sprint") does NOT qualify as an action item, even if it's \
+worth noting — put that under Key Discussion Points instead, not Action Items.
+"""
+
+MOM_INSTRUCTION = """Produce the Minutes of Meeting in exactly this structure:
+
+## Meeting Summary
+A concise paragraph (3-6 sentences) covering what was discussed and any decisions made.
+
+## Key Discussion Points
+Bullet list of the main topics/updates raised, grouped logically. FYI/heads-up items with \
+no owner commitment belong here, not in Action Items.
+
+## Action Items
+One line per item, in exactly this format (use "not specified" if a field isn't in the \
+transcript):
+- [ ] <action description> — Owner: <name> — Due: <date>
+
+## Open Questions / Blockers
+Anything raised as unresolved or blocking. Write "None raised" if there weren't any.
+"""
+
+MOM_CHUNK_INSTRUCTION = """This is one part of a longer meeting transcript (not the whole \
+meeting). List only what's covered in THIS part:
+- The key discussion points raised here.
+- Any action items/owners/due dates mentioned here, in the same "- [ ] <action> — Owner: \
+<name> — Due: <date>" format.
+Do not write a full MoM yet — this is raw material for a later consolidation pass.
+"""
+
+MOM_REDUCE_INSTRUCTION = """Below are notes extracted separately from consecutive parts of \
+the SAME meeting transcript. Consolidate them into ONE final Minutes of Meeting, \
+deduplicating anything repeated across parts (e.g. an action item mentioned in two parts \
+should appear once).""" + "\n\n" + MOM_INSTRUCTION
+
+
+def generate_mom(messages: list, user_input: str):
+    """Reads a transcript file and produces a MoM + action items. Chunks and
+    map-reduces automatically for transcripts too long for one context
+    window -- a real hour-long meeting easily runs 8,000-15,000+ words."""
+    match = MOM_RE.match(user_input)
+    if not match:
+        print("Usage: mom <path-to-transcript-file>\n")
+        return
+    path = match.group(1).strip()
+
+    text, error = load_transcript(path)
+    if text is None:
+        print(error + "\n")
+        return
+
+    chunks = chunk_transcript(text, max_chars=MOM_CHUNK_CHAR_BUDGET)
+    mom_messages = [{"role": "system", "content": MOM_SYSTEM_PROMPT}]
+
+    if len(chunks) == 1:
+        print("Generating Minutes of Meeting...")
+        prompt = f"TRANSCRIPT:\n{chunks[0]}\n\n{MOM_INSTRUCTION}"
+        reply = call_ollama(mom_messages + [{"role": "user", "content": prompt}],
+                             DEFAULT_MODEL, num_ctx=MOM_NUM_CTX)
+    else:
+        print(f"Transcript is long ({len(chunks)} parts) — summarizing each part first...")
+        part_notes = []
+        for i, chunk in enumerate(chunks):
+            print(f"  Part {i + 1}/{len(chunks)}...")
+            prompt = f"TRANSCRIPT PART {i + 1} of {len(chunks)}:\n{chunk}\n\n{MOM_CHUNK_INSTRUCTION}"
+            part_reply = call_ollama(mom_messages + [{"role": "user", "content": prompt}],
+                                      DEFAULT_MODEL, num_ctx=MOM_NUM_CTX, show_progress=False)
+            part_notes.append(f"--- Part {i + 1} ---\n{part_reply}")
+        print("Consolidating into final MoM...")
+        combined = "\n\n".join(part_notes)
+        prompt = f"{combined}\n\n{MOM_REDUCE_INSTRUCTION}"
+        reply = call_ollama(mom_messages + [{"role": "user", "content": prompt}],
+                             DEFAULT_MODEL, num_ctx=MOM_NUM_CTX)
+
+    if reply is None:
+        print()
+        return
+
+    messages.append({"role": "user", "content": f"(Generated MoM from transcript: {path})"})
+    messages.append({"role": "assistant", "content": reply})
+
+    os.makedirs("mom_output", exist_ok=True)
+    base = os.path.splitext(os.path.basename(path))[0]
+    out_path = os.path.join("mom_output", f"{base}_mom.md")
+    with open(out_path, "w") as f:
+        f.write(reply)
+    print(f"\nSaved to {out_path}\n")
+
+
 def estimate_with_codebase(messages: list, user_input: str, pat: str,
                             loaded_ids: set, repo_state: dict, org_state: dict):
     """Like load_item, but also clones the Frontend/Backend/Mobile repos (once
@@ -574,21 +695,34 @@ def estimate_with_codebase(messages: list, user_input: str, pat: str,
     print()
 
 
+def require_pat(pat: str) -> bool:
+    """ADO-touching commands (load/estimate/analyse dependency) need a PAT;
+    mom/correct/general questions don't, so this is checked per-command
+    rather than at startup -- someone who only wants 'mom' shouldn't need
+    Azure DevOps access set up at all."""
+    if pat:
+        return True
+    print("AZURE_DEVOPS_PAT is not set. Run: export AZURE_DEVOPS_PAT=\"...\"\n")
+    return False
+
+
 def main():
     pat = os.environ.get("AZURE_DEVOPS_PAT")
-    if not pat:
-        sys.exit("AZURE_DEVOPS_PAT is not set. Run: export AZURE_DEVOPS_PAT=\"...\"")
 
     # Seeded from ado_common's constants so an existing setup still gets a
     # one-keystroke confirm instead of being forced to retype it, while a
     # fresh setup for a different org/project just gets asked directly.
     org_state = {"org": DEFAULT_ORG, "project": DEFAULT_PROJECT}
-    prompt_org_project(org_state)
-
     system_prompt = BASE_SYSTEM_PROMPT
-    examples = fetch_reference_examples(org_state["org"], org_state["project"], pat)
-    if examples:
-        system_prompt += "\n\n" + examples
+    if pat:
+        prompt_org_project(org_state)
+        examples = fetch_reference_examples(org_state["org"], org_state["project"], pat)
+        if examples:
+            system_prompt += "\n\n" + examples
+    else:
+        print("AZURE_DEVOPS_PAT is not set — 'load', 'estimate', and 'analyse dependency' "
+              "will be unavailable until you export it, but 'mom' and general questions "
+              "still work.\n")
     corrections_context = build_corrections_context(load_corrections())
     if corrections_context:
         system_prompt += "\n\n" + corrections_context
@@ -600,10 +734,11 @@ def main():
 
     print("task-breakdown chat. Commands: 'load <id>' to load/switch a work item, "
           "'estimate <id>' for a codebase-aware estimate (prompts for Frontend/Backend/"
-          "Mobile repos once), 'set repo' to change the repos, 'set org' to change the "
+          "Mobile repos once), 'mom <transcript-file>' for Minutes of Meeting + action "
+          "items, 'set repo' to change the repos, 'set org' to change the "
           "organisation/project, 'analyse dependency between <id> and <id>', "
           "'correct <note>' to save a correction for future sessions, 'exit' to quit.")
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 1 and require_pat(pat):
         current_id = load_item(messages, sys.argv[1], pat, loaded_ids, org_state) or current_id
     else:
         print("No work item loaded yet. Type 'load <id>' or ask a general question.\n")
@@ -632,22 +767,29 @@ def main():
                 print()
                 continue
 
+            if MOM_RE.match(user_input):
+                generate_mom(messages, user_input)
+                continue
+
             if ESTIMATE_RE.match(user_input):
-                estimate_with_codebase(messages, user_input, pat, loaded_ids, repo_state, org_state)
+                if require_pat(pat):
+                    estimate_with_codebase(messages, user_input, pat, loaded_ids, repo_state, org_state)
                 continue
 
             # Checked ahead of the load branch: "load 97057 and analyse dependency
             # between 97057 and 97061" mentions "load" too, but dependency intent wins.
             dep_ids = ID_RE.findall(user_input)
             if DEPENDENCY_RE.search(user_input) and len(dep_ids) >= 2:
-                analyse_dependency(messages, dep_ids[0], dep_ids[1], pat, loaded_ids, org_state)
+                if require_pat(pat):
+                    analyse_dependency(messages, dep_ids[0], dep_ids[1], pat, loaded_ids, org_state)
                 continue
 
             # Treat it as a load request whenever "load" and a work item number
             # appear together anywhere in the message, not just as a prefix —
             # covers phrasing like "now load workitem 97061 and give the title".
             if re.search(r"\bload\b", user_input, re.IGNORECASE) and ID_RE.search(user_input):
-                current_id = load_item(messages, user_input, pat, loaded_ids, org_state) or current_id
+                if require_pat(pat):
+                    current_id = load_item(messages, user_input, pat, loaded_ids, org_state) or current_id
                 continue
 
             correct_match = CORRECT_RE.match(user_input)
