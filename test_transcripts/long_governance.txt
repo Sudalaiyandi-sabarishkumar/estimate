@@ -1,409 +1,151 @@
-Sudalaiyandi: Let's kick off today's governance and scrum sync. We have a few topics to cover.
-Priya: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: I need to fix the flaky CI pipeline for the mobile repo — I'll have that patched by Wednesday.
-Sudalaiyandi: Got it, thanks for flagging that.
-Karthik: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: The client wants a revised SOW for the new module — I'll draft it and send it for review by Friday.
-Sudalaiyandi: Got it, thanks for flagging that.
-Meena: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: I'll schedule the security audit with the external vendor for next month.
-Sudalaiyandi: Got it, thanks for flagging that.
-Rahul: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed feedback from the last retro. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, there was a discussion on whether to adopt a new linting rule. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed onboarding steps for the new hire joining next week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Karthik: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, there was a general discussion about code review turnaround times. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Priya: Just to update, the team discussed test coverage numbers for the auth module. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, the sprint velocity looked stable this week. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, we talked about the upcoming holiday schedule and how it affects sprint planning. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Arjun: Just to update, we reviewed the burndown chart and it's tracking close to plan. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Meena: Just to update, there was a brief discussion about the staging environment being slow. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: Just to update, we talked through the backlog grooming schedule for next sprint. Nothing urgent here.
-Sudalaiyandi: Understood, thanks for the update.
-Rahul: I'll follow up with the DevOps team about the staging server slowness and report back by tomorrow.
-Sudalaiyandi: Great, thanks everyone. That wraps up today's call.
+WEBVTT
+
+00:00:03.500 --> 00:00:09.200
+<v Priya Sharma>Hey everyone, thanks for joining. Let's get started — today's agenda is the Q3 governance review and the auto-pull rollout status.
+
+00:00:09.500 --> 00:00:14.800
+<v Arjun Mehta>Sounds good. Before we dive in, quick update — the sandbox tenant is fully provisioned and the app registration is done.
+
+00:00:15.000 --> 00:00:19.400
+<v Priya Sharma>Great, that unblocks step six then. Did the admin consent go through cleanly?
+
+00:00:19.600 --> 00:00:26.300
+<v Arjun Mehta>Yep, granted OnlineMeetingTranscript.Read.All. Took about two minutes since we're Global Admin on that tenant.
+
+00:00:26.500 --> 00:00:31.000
+<v Divya Ramesh>Nice. What about the Graph access toggle in the Teams admin center?
+
+00:00:31.200 --> 00:00:36.700
+<v Arjun Mehta>Turned on this morning. Should propagate fine, no issues reported so far.
+
+00:00:37.000 --> 00:00:42.500
+<v Priya Sharma>Good. Let's move to the access policy step — that's usually where people get stuck.
+
+00:00:42.700 --> 00:00:50.100
+<v Arjun Mehta>Right, New-CsApplicationAccessPolicy and Grant-CsApplicationAccessPolicy. I'll run those after this call and give it the thirty minute buffer.
+
+00:00:50.300 --> 00:00:55.000
+<v Divya Ramesh>Make sure you're using the organizer's object ID, not the app's. That tripped me up last time.
+
+00:00:55.200 --> 00:00:58.900
+<v Arjun Mehta>Good call, I'll double check that against the Entra admin center.
+
+00:01:30.000 --> 00:01:38.400
+<v Priya Sharma>Okay, moving on. Let's talk about the webhook setup for posting the MoM back into the channel.
+
+00:01:38.600 --> 00:01:45.200
+<v Divya Ramesh>I set that up yesterday. Workflows, post to a channel when a webhook request is received. Got the URL saved.
+
+00:01:45.400 --> 00:01:49.000
+<v Priya Sharma>Perfect. Can you drop that in the shared doc so Arjun has it for the env vars?
+
+00:01:49.200 --> 00:01:50.800
+<v Divya Ramesh>Already done.
+
+00:02:10.500 --> 00:02:18.000
+<v Arjun Mehta>One thing I want to flag — the idempotency tracking. We're caching the meeting ID and last-seen transcript timestamp in a local state file, right?
+
+00:02:18.200 --> 00:02:25.600
+<v Priya Sharma>Yes, auto_mom_state.json. First run resolves and caches the meeting ID, subsequent runs check against it so we don't repost.
+
+00:02:25.800 --> 00:02:31.000
+<v Divya Ramesh>What happens if the state file gets deleted or corrupted? Does it just repost everything?
+
+00:02:31.200 --> 00:02:38.500
+<v Arjun Mehta>It would treat it as a first run, yeah. We should probably add a warning log if the file's missing but the meeting ID env var suggests it shouldn't be.
+
+00:02:38.700 --> 00:02:41.900
+<v Priya Sharma>Good catch, let's add that as a follow-up item.
+
+00:03:05.000 --> 00:03:12.400
+<v Priya Sharma>Let's talk error handling. Arjun, walk us through what teams_graph.py does when something's misconfigured.
+
+00:03:12.600 --> 00:03:22.000
+<v Arjun Mehta>Sure. It distinguishes three failure modes — Graph access to transcripts being off, no application access policy for the app, and a plain auth failure like a bad client secret or expired token.
+
+00:03:22.200 --> 00:03:27.500
+<v Divya Ramesh>That's helpful for debugging. Generic four-oh-three errors are a nightmare otherwise.
+
+00:03:27.700 --> 00:03:33.000
+<v Arjun Mehta>Exactly, so each of those maps to a specific step in the setup doc — step five, step six, or step three-four.
+
+00:03:33.200 --> 00:03:36.400
+<v Priya Sharma>Nice, that'll save a lot of back and forth during rollout.
+
+00:04:00.000 --> 00:04:07.800
+<v Priya Sharma>Let's test the actual flow now. Divya, can you start transcription on this call so we generate a real test transcript?
+
+00:04:08.000 --> 00:04:10.500
+<v Divya Ramesh>Starting it now.
+
+00:04:11.000 --> 00:04:14.200
+<v System>Transcription started.
+
+00:04:15.000 --> 00:04:22.000
+<v Arjun Mehta>Okay while that's running, let's talk through the demo data. We've got twenty-five demo users in the sandbox tenant.
+
+00:04:22.200 --> 00:04:28.500
+<v Priya Sharma>Are any of them assigned licenses that would block Teams meeting creation? I remember hitting that once.
+
+00:04:28.700 --> 00:04:33.900
+<v Arjun Mehta>No, all twenty-five come with E5 by default in the instant sandbox option, so we're fine.
+
+00:04:34.100 --> 00:04:39.000
+<v Divya Ramesh>Good, one less thing to troubleshoot.
+
+00:05:10.000 --> 00:05:18.400
+<v Priya Sharma>Let's move to the rollout plan. Once this is validated in the sandbox, what's the path to the real org tenant?
+
+00:05:18.600 --> 00:05:27.000
+<v Arjun Mehta>Same steps, but we'll need actual IT to grant admin consent and run the PowerShell commands, since we won't be Global Admin there.
+
+00:05:27.200 --> 00:05:33.500
+<v Divya Ramesh>I can loop in Sanjay from IT. He's handled similar Graph permission requests before.
+
+00:05:33.700 --> 00:05:37.000
+<v Priya Sharma>Perfect, let's get that on his radar this week.
+
+00:06:00.000 --> 00:06:07.200
+<v Arjun Mehta>Also worth noting — the access policy propagation delay. Microsoft's docs say up to thirty minutes, but I've seen it take longer.
+
+00:06:07.400 --> 00:06:13.000
+<v Divya Ramesh>Good to flag that in the runbook so people don't panic and assume something's broken.
+
+00:06:13.200 --> 00:06:16.500
+<v Priya Sharma>Agreed, I'll add a note about that.
+
+00:06:40.000 --> 00:06:47.800
+<v Priya Sharma>Alright, let's do a quick round of open questions before we wrap. Anything blocking anyone?
+
+00:06:48.000 --> 00:06:53.500
+<v Arjun Mehta>Nothing major, just want to confirm the webhook payload format matches what the channel workflow expects.
+
+00:06:53.700 --> 00:06:59.000
+<v Divya Ramesh>I tested that yesterday with a curl request, it worked fine. Simple JSON with a text field.
+
+00:06:59.200 --> 00:07:02.000
+<v Arjun Mehta>Great, that answers my question.
+
+00:07:20.000 --> 00:07:24.500
+<v Priya Sharma>Anything from you, Divya?
+
+00:07:24.700 --> 00:07:30.000
+<v Divya Ramesh>Nope, I think we're in good shape. I'll finish documenting the webhook step today.
+
+00:07:30.200 --> 00:07:35.000
+<v Priya Sharma>Perfect. Alright, I think that covers everything for today.
+
+00:07:35.200 --> 00:07:45.000
+<v Priya Sharma>Action items: Arjun to finish the PowerShell access policy by Friday and double check the organizer object ID. Divya to document the webhook step and loop in Sanjay from IT. I'll draft the rollout doc and add the idempotency follow-up.
+
+00:07:45.200 --> 00:07:49.500
+<v Arjun Mehta>Sounds good, talk soon.
+
+00:07:49.700 --> 00:07:51.000
+<v Divya Ramesh>Bye everyone.
+
+00:07:51.200 --> 00:07:52.500
+<v Priya Sharma>Bye, thanks all.
+
+00:07:53.000 --> 00:07:55.000
+<v System>Transcription stopped.

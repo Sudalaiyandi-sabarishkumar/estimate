@@ -18,6 +18,8 @@ the lesson going forward — it does not sync to other machines.
 
 Setup (one-time):
   export AZURE_DEVOPS_PAT="..."   # PAT with Work Items (Read) scope
+  export TEAMS_WEBHOOK_URL="..."  # optional -- lets /mom post to a Teams
+                                   # channel; see teams_notify.py's docstring
 
 Usage:
   python3 task_breakdown_chat.py
@@ -27,6 +29,16 @@ Usage:
 import re
 import sys
 import os
+
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.completion import WordCompleter
+    _PROMPT_TOOLKIT_AVAILABLE = True
+except ImportError:
+    # Falls back to plain input() -- commands still work, just without the
+    # live "/" dropdown, in case someone runs this on a machine where
+    # prompt_toolkit isn't installed.
+    _PROMPT_TOOLKIT_AVAILABLE = False
 
 from ado_common import (
     DEFAULT_ORG,
@@ -53,6 +65,11 @@ from codebase_context import (
     ARCHITECTURE_CHAR_BUDGET,
 )
 from transcript_utils import load_transcript, chunk_transcript
+from teams_notify import send_to_teams
+
+# Matches the shell alias in ~/.zshrc ("ollama run agent") -- shown in the
+# startup banner so it's clear which tool/model you're talking to.
+AGENT_NAME = "agent"
 
 REPO_ROLES = ["frontend", "backend", "mobile"]
 
@@ -152,14 +169,49 @@ one — and whether that's formally recorded in ADO or only implied by the requi
 """
 
 ID_RE = re.compile(r"\b\d{4,}\b")
-CORRECT_RE = re.compile(r"^(?:correct|correction)\b[:\s]*(.*)$", re.IGNORECASE)
-DEPENDENCY_RE = re.compile(r"\bdepend", re.IGNORECASE)
-ESTIMATE_RE = re.compile(r"^estimate\b", re.IGNORECASE)
-SET_REPO_RE = re.compile(r"^(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNORECASE)
-SET_ORG_RE = re.compile(r"^(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
-MOM_RE = re.compile(r"^mom\s+(.+)$", re.IGNORECASE)
-MOM_CHUNK_CHAR_BUDGET = 20000
+
+# All commands are slash commands, like Claude Code's own -- '/skills' lists
+# them all at runtime (see SKILLS_TEXT below) rather than needing this list
+# memorized.
+LOAD_RE = re.compile(r"^/load\b", re.IGNORECASE)
+CORRECT_RE = re.compile(r"^/(?:correct|correction)\b[:\s]*(.*)$", re.IGNORECASE)
+DEPENDENCY_RE = re.compile(r"^/(?:analyse\s+)?dependency\b", re.IGNORECASE)
+ESTIMATE_RE = re.compile(r"^/estimate\b", re.IGNORECASE)
+SET_REPO_RE = re.compile(r"^/(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNORECASE)
+SET_ORG_RE = re.compile(r"^/(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
+MOM_RE = re.compile(r"^/mom\s+(.+)$", re.IGNORECASE)
+SKILLS_RE = re.compile(r"^/skills\b", re.IGNORECASE)
+
+# Kept deliberately small, not sized to the context window's actual ceiling.
+# A real test against a 15K-char transcript showed the model faithfully
+# covering only the first ~third of a single large single-shot input and
+# silently thinning out (plus fabricating a due date) on the rest, well
+# before num_ctx was actually exhausted -- forcing more, smaller chunks
+# keeps each individual call's transcript slice small enough to process
+# completely, which matters more here than minimizing the number of calls.
+MOM_CHUNK_CHAR_BUDGET = 5000
 MOM_NUM_CTX = 12288
+
+SKILLS_TEXT = """Available skills:
+  /load <id>                        Load an Azure DevOps work item and get a breakdown
+  /estimate <id>                    Codebase-aware estimate (Frontend/Backend/Mobile/Testing)
+  /mom <transcript-file>             Minutes of Meeting + action items from a transcript
+                                     (optionally posts to Teams -- see TEAMS_WEBHOOK_URL)
+  /dependency <id> and <id>         Check dependency direction between two work items
+  /correct <note>                   Save a correction, remembered in future sessions
+  /set repo                         Change the Frontend/Backend/Mobile repos
+  /set org                          Change the Azure DevOps organisation/project
+  /skills                           Show this list
+  exit (or /exit)                   Quit
+Anything else you type is just a normal question to the model."""
+
+# Completion candidates for the live "/" dropdown (see _PROMPT_TOOLKIT_AVAILABLE
+# above) -- kept as plain command names/prefixes, not full usage strings, so
+# completing one still leaves room to type the actual <id>/<note>/<file> after it.
+SKILL_COMMANDS = [
+    "/load", "/estimate", "/mom", "/dependency", "/correct",
+    "/set repo", "/set org", "/skills", "/exit",
+]
 
 
 def prompt_org_project(org_state: dict):
@@ -364,7 +416,7 @@ def load_item(messages: list, user_input: str, pat: str, loaded_ids: set, org_st
     """Returns the loaded item id on success, None on failure."""
     match = ID_RE.search(user_input)
     if not match:
-        print(f"Couldn't find a work item number in that. Try: load 97061\n")
+        print(f"Couldn't find a work item number in that. Try: /load 97061\n")
         return None
     item_id = match.group()
     print(f"Loading work item #{item_id} from Azure DevOps...")
@@ -384,12 +436,12 @@ def load_item(messages: list, user_input: str, pat: str, loaded_ids: set, org_st
     if item_corrections:
         context += "\n\n" + item_corrections
 
-    # Whatever the user asked for beyond "load <id>" becomes the actual request,
-    # e.g. "load 97061 and give only the title" -> "and give only the title".
-    instruction = re.sub(r"\bload\b", "", user_input, flags=re.IGNORECASE)
+    # Whatever the user asked for beyond "/load <id>" becomes the actual request,
+    # e.g. "/load 97061 and give only the title" -> "and give only the title".
+    instruction = re.sub(r"^/load\b", "", user_input, flags=re.IGNORECASE)
     instruction = re.sub(r"\bwork\s*items?\b", "", instruction, flags=re.IGNORECASE)
     instruction = instruction.replace(item_id, "")
-    instruction = re.sub(r"\s+", " ", instruction).strip(" ,.")
+    instruction = re.sub(r"\s+", " ", instruction).strip(" ,./")
     if not instruction:
         instruction = "Give me a full breakdown."
 
@@ -491,34 +543,107 @@ Anything raised as unresolved or blocking. Write "None raised" if there weren't 
 """
 
 MOM_CHUNK_INSTRUCTION = """This is one part of a longer meeting transcript (not the whole \
-meeting). List only what's covered in THIS part:
-- The key discussion points raised here.
-- Any action items/owners/due dates mentioned here, in the same "- [ ] <action> — Owner: \
-<name> — Due: <date>" format.
-Do not write a full MoM yet — this is raw material for a later consolidation pass.
+meeting). Respond in EXACTLY this format, with these two headers verbatim (a later step \
+mechanically merges these sections across parts by searching for these exact header \
+strings, so do not rename, reformat, or omit either one even if a section is empty):
+
+## DISCUSSION POINTS
+- <topic raised here, one bullet per topic>
+
+## ACTION ITEMS
+- [ ] <action description> — Owner: <name> — Due: <date, or "not specified">
+
+Do not write a full MoM yet — this is raw material for a later consolidation pass, so list \
+everything covered in THIS part, however minor; nothing gets a second chance to be included.
+
+If this part contains no real meeting dialogue at all (e.g. it's empty, only a file header, \
+a trailing note, or unrelated text with no one actually speaking), still use both headers, \
+each followed by a single line: "None." Never invent discussion points or action items to \
+fill the space.
 """
 
-MOM_REDUCE_INSTRUCTION = """Below are notes extracted separately from consecutive parts of \
-the SAME meeting transcript. Consolidate them into ONE final Minutes of Meeting, \
-deduplicating anything repeated across parts (e.g. an action item mentioned in two parts \
-should appear once).""" + "\n\n" + MOM_INSTRUCTION
+# No LLM-based reduce anymore. Repeated testing showed that asking the model
+# to merge 4 parts' worth of already-correct notes into one final MoM reliably
+# dropped and occasionally misattributed real content, even at temperature=0
+# with an explicit "never drop anything" instruction -- a genuine capability
+# ceiling for this model size at multi-source synthesis, not a prompt-wording
+# problem (see conversation). merge_discussion_and_action_items() below
+# concatenates the DISCUSSION POINTS/ACTION ITEMS sections mechanically in
+# plain Python instead, which cannot drop or reword anything since there's no
+# model involved in that step. The one remaining LLM call
+# (MOM_SUMMARY_INSTRUCTION) only writes the intro paragraph and checks for
+# open questions, working from the already-complete merged list -- a
+# summarization task, not a selection task, so nothing it does can cause the
+# real content to go missing.
+MOM_SUMMARY_INSTRUCTION = """Below is the COMPLETE, already-finalized list of discussion \
+points and action items for this meeting (assembled separately, not by you). Do not add, \
+remove, reword, or reorder any of it.
+
+Using only this list, write:
+
+## Meeting Summary
+A concise paragraph (3-6 sentences) covering what was discussed and any decisions made.
+
+## Open Questions / Blockers
+Anything in the list above that reads as unresolved or blocking. Write "None raised" if \
+there weren't any.
+
+Output ONLY those two sections, nothing else -- the discussion points and action items are \
+appended after your response, not written by you.
+"""
 
 
-def generate_mom(messages: list, user_input: str):
-    """Reads a transcript file and produces a MoM + action items. Chunks and
-    map-reduces automatically for transcripts too long for one context
-    window -- a real hour-long meeting easily runs 8,000-15,000+ words."""
-    match = MOM_RE.match(user_input)
-    if not match:
-        print("Usage: mom <path-to-transcript-file>\n")
-        return
-    path = match.group(1).strip()
+def merge_discussion_and_action_items(part_notes: list) -> tuple:
+    """Mechanically extracts the '## DISCUSSION POINTS' / '## ACTION ITEMS'
+    bullets from each part's chunk-instruction output (see MOM_CHUNK_INSTRUCTION
+    for the exact header contract) and concatenates them -- no LLM involved,
+    so nothing can be silently dropped or misattributed the way the old
+    LLM-based reduce step repeatedly was. Returns (discussion_points_md,
+    action_items_md), each already-formatted markdown bullet lists."""
+    discussion_bullets, action_bullets = [], []
+    seen_discussion, seen_action = set(), set()
 
-    text, error = load_transcript(path)
-    if text is None:
-        print(error + "\n")
-        return
+    for note in part_notes:
+        for header, bullets, seen in (
+            ("## DISCUSSION POINTS", discussion_bullets, seen_discussion),
+            ("## ACTION ITEMS", action_bullets, seen_action),
+        ):
+            start = note.find(header)
+            if start == -1:
+                continue
+            start += len(header)
+            end = note.find("##", start)
+            section = note[start:end if end != -1 else None]
+            for line in section.splitlines():
+                line = line.strip()
+                if not line or line.lower() in ("none.", "none", "- none.", "- none"):
+                    continue
+                if not line.startswith("-"):
+                    continue
+                # Exact-duplicate-only dedup (case/whitespace-insensitive) --
+                # deliberately not "smart": two items only merge if they're
+                # the same string, never based on the model judging them
+                # similar, which is exactly the judgment call that kept going
+                # wrong in the old reduce step.
+                key = " ".join(line.lower().split())
+                if key in seen:
+                    continue
+                seen.add(key)
+                bullets.append(line)
 
+    discussion_md = "\n".join(discussion_bullets) if discussion_bullets else "- None raised."
+    action_md = "\n".join(action_bullets) if action_bullets else "- None."
+    return discussion_md, action_md
+
+
+def run_mom_pipeline(text: str, base_name: str, messages: list = None):
+    """Core MoM generation: chunk -> per-chunk extraction -> mechanical merge
+    -> summary -> save to mom_output/<base_name>_mom.md. Returns (out_path,
+    reply). Shared by the interactive /mom <file> command (passes `messages`
+    so the result joins the chat history) and auto_mom.py's unattended
+    Teams-transcript pipeline (no chat session, so `messages` stays None) --
+    posting to Teams is the caller's decision, not made here, since the two
+    callers want different UX for it (ask vs. always)."""
     chunks = chunk_transcript(text, max_chars=MOM_CHUNK_CHAR_BUDGET)
     mom_messages = [{"role": "system", "content": MOM_SYSTEM_PROMPT}]
 
@@ -527,34 +652,108 @@ def generate_mom(messages: list, user_input: str):
         prompt = f"TRANSCRIPT:\n{chunks[0]}\n\n{MOM_INSTRUCTION}"
         reply = call_ollama(mom_messages + [{"role": "user", "content": prompt}],
                              DEFAULT_MODEL, num_ctx=MOM_NUM_CTX)
+        if reply is None:
+            print()
+            return None, None
     else:
         print(f"Transcript is long ({len(chunks)} parts) — summarizing each part first...")
         part_notes = []
         for i, chunk in enumerate(chunks):
             print(f"  Part {i + 1}/{len(chunks)}...")
             prompt = f"TRANSCRIPT PART {i + 1} of {len(chunks)}:\n{chunk}\n\n{MOM_CHUNK_INSTRUCTION}"
+            # temperature=0: this is faithful extraction ("what was said in this
+            # chunk"), not creative writing -- sampling variance here was shown
+            # to change which items get extracted and even who gets named as
+            # owner on the exact same transcript across runs, so it gets the
+            # same determinism treatment as the summary call below.
             part_reply = call_ollama(mom_messages + [{"role": "user", "content": prompt}],
-                                      DEFAULT_MODEL, num_ctx=MOM_NUM_CTX, show_progress=False)
-            part_notes.append(f"--- Part {i + 1} ---\n{part_reply}")
-        print("Consolidating into final MoM...")
-        combined = "\n\n".join(part_notes)
-        prompt = f"{combined}\n\n{MOM_REDUCE_INSTRUCTION}"
-        reply = call_ollama(mom_messages + [{"role": "user", "content": prompt}],
-                             DEFAULT_MODEL, num_ctx=MOM_NUM_CTX)
+                                      DEFAULT_MODEL, num_ctx=MOM_NUM_CTX, show_progress=False,
+                                      temperature=0)
+            part_notes.append(part_reply or "")
 
-    if reply is None:
-        print()
-        return
+        # Mechanical merge (plain Python, no model involved) -- see
+        # merge_discussion_and_action_items()'s docstring for why: the
+        # LLM-based reduce this replaced reliably dropped and occasionally
+        # misattributed real content across repeated testing, even at
+        # temperature=0 with an explicit "never drop anything" instruction.
+        discussion_md, action_md = merge_discussion_and_action_items(part_notes)
 
-    messages.append({"role": "user", "content": f"(Generated MoM from transcript: {path})"})
-    messages.append({"role": "assistant", "content": reply})
+        print("Writing summary from the complete, merged list...")
+        merged_list_text = f"## DISCUSSION POINTS\n{discussion_md}\n\n## ACTION ITEMS\n{action_md}"
+        prompt = f"{merged_list_text}\n\n{MOM_SUMMARY_INSTRUCTION}"
+        summary_reply = call_ollama(mom_messages + [{"role": "user", "content": prompt}],
+                                     DEFAULT_MODEL, num_ctx=MOM_NUM_CTX, temperature=0)
+        if summary_reply is None:
+            print()
+            return None, None
+
+        # MOM_SUMMARY_INSTRUCTION asks for "## Meeting Summary" followed by
+        # "## Open Questions / Blockers", in that order -- but the canonical
+        # MoM order (MOM_INSTRUCTION, the single-chunk path) is Summary ->
+        # Discussion Points -> Action Items -> Open Questions. Splice the
+        # mechanical sections in between rather than appending them after
+        # both, or Open Questions ends up sitting right after the summary
+        # paragraph, ahead of the actual discussion/action content.
+        summary_reply = summary_reply.strip()
+        # Match on the heading regardless of how many #'s the model used --
+        # it doesn't reliably match MOM_SUMMARY_INSTRUCTION's own "##" depth
+        # (often writes "### Open Questions" instead, echoing its own
+        # "### Meeting Summary" heading a few lines earlier). A plain
+        # substring search for "## Open Questions" still matches inside that
+        # "###" one character in, leaving a stray lone "#" dangling at the
+        # end of the summary paragraph.
+        heading_match = re.search(r"^#+\s*Open Questions", summary_reply, re.MULTILINE)
+        if heading_match:
+            idx = heading_match.start()
+            meeting_summary_part = summary_reply[:idx].strip()
+            open_questions_part = summary_reply[idx:].strip()
+        else:
+            meeting_summary_part = summary_reply
+            open_questions_part = "## Open Questions / Blockers\nNone raised."
+
+        tail = (
+            f"\n\n## Key Discussion Points\n{discussion_md}\n\n"
+            f"## Action Items\n{action_md}\n\n"
+            f"{open_questions_part}\n"
+        )
+        print(tail)
+        reply = meeting_summary_part + tail
+
+    if messages is not None:
+        messages.append({"role": "user", "content": f"(Generated MoM from transcript: {base_name})"})
+        messages.append({"role": "assistant", "content": reply})
 
     os.makedirs("mom_output", exist_ok=True)
-    base = os.path.splitext(os.path.basename(path))[0]
-    out_path = os.path.join("mom_output", f"{base}_mom.md")
+    out_path = os.path.join("mom_output", f"{base_name}_mom.md")
     with open(out_path, "w") as f:
         f.write(reply)
     print(f"\nSaved to {out_path}\n")
+
+    return out_path, reply
+
+
+def generate_mom(messages: list, user_input: str):
+    """/mom <path-to-transcript-file>: the interactive, manually-triggered
+    path -- reads a local transcript file, runs it through run_mom_pipeline(),
+    and (unlike auto_mom.py's unattended pipeline) asks before posting
+    anywhere, since a live chat session has a human right there to answer."""
+    match = MOM_RE.match(user_input)
+    if not match:
+        print("Usage: /mom <path-to-transcript-file>\n")
+        return
+    path = match.group(1).strip()
+
+    text, error = load_transcript(path)
+    if text is None:
+        print(error + "\n")
+        return
+
+    base = os.path.splitext(os.path.basename(path))[0]
+    out_path, reply = run_mom_pipeline(text, base, messages)
+    if reply is None:
+        return
+
+    offer_teams_post(f"Minutes of Meeting — {base}", reply)
 
 
 def estimate_with_codebase(messages: list, user_input: str, pat: str,
@@ -564,7 +763,7 @@ def estimate_with_codebase(messages: list, user_input: str, pat: str,
     so the estimate accounts for the actual codebase, not just the ticket text."""
     match = ID_RE.search(user_input)
     if not match:
-        print("Couldn't find a work item number in that. Try: estimate 97061\n")
+        print("Couldn't find a work item number in that. Try: /estimate 97061\n")
         return
     item_id = match.group()
 
@@ -596,8 +795,8 @@ def estimate_with_codebase(messages: list, user_input: str, pat: str,
 
     if all(repo_state[role].get("skipped") for role in relevant_roles):
         print("No repos provided — falling back to a plain ticket-based breakdown "
-              "(same as 'load'), since there's nothing to check the codebase against.\n")
-        load_item(messages, f"load {item_id}", pat, loaded_ids, org_state)
+              "(same as /load), since there's nothing to check the codebase against.\n")
+        load_item(messages, f"/load {item_id}", pat, loaded_ids, org_state)
         return
 
     # Each relevant repo gets a share of the overall context budget so
@@ -706,6 +905,28 @@ def require_pat(pat: str) -> bool:
     return False
 
 
+def offer_teams_post(title: str, reply: str):
+    """After a MoM is generated, ask whether to post it to the Teams channel
+    via TEAMS_WEBHOOK_URL (see teams_notify.py's docstring for one-time
+    setup). Skipped silently on 'n' -- posting to a shared channel is the
+    one action this whole tool takes outside the local machine, so it's
+    opt-in per run, never automatic."""
+    post = input("Post this MoM to the Teams channel? (y/N): ").strip().lower()
+    if post not in ("y", "yes"):
+        return
+    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL")
+    if not webhook_url:
+        print("TEAMS_WEBHOOK_URL is not set -- see teams_notify.py's docstring "
+              "for one-time setup (add a Workflows webhook to the channel, "
+              "then export TEAMS_WEBHOOK_URL=\"...\"). Skipping.\n")
+        return
+    ok, error = send_to_teams(webhook_url, title, reply)
+    if ok:
+        print("Posted to Teams.\n")
+    else:
+        print(f"Couldn't post to Teams: {error}\n")
+
+
 def main():
     pat = os.environ.get("AZURE_DEVOPS_PAT")
 
@@ -720,9 +941,8 @@ def main():
         if examples:
             system_prompt += "\n\n" + examples
     else:
-        print("AZURE_DEVOPS_PAT is not set — 'load', 'estimate', and 'analyse dependency' "
-              "will be unavailable until you export it, but 'mom' and general questions "
-              "still work.\n")
+        print("AZURE_DEVOPS_PAT is not set — /load, /estimate, and /dependency will be "
+              "unavailable until you export it, but /mom and general questions still work.\n")
     corrections_context = build_corrections_context(load_corrections())
     if corrections_context:
         system_prompt += "\n\n" + corrections_context
@@ -732,32 +952,40 @@ def main():
     current_id = None
     repo_state = {role: {"url": None, "branch": None} for role in REPO_ROLES}
 
-    print("task-breakdown chat. Commands: 'load <id>' to load/switch a work item, "
-          "'estimate <id>' for a codebase-aware estimate (prompts for Frontend/Backend/"
-          "Mobile repos once), 'mom <transcript-file>' for Minutes of Meeting + action "
-          "items, 'set repo' to change the repos, 'set org' to change the "
-          "organisation/project, 'analyse dependency between <id> and <id>', "
-          "'correct <note>' to save a correction for future sessions, 'exit' to quit.")
+    print(f"{AGENT_NAME} — local dev-team assistant (model: {DEFAULT_MODEL})")
+    print("Type /skills to see available commands, or exit to quit.\n")
     if len(sys.argv) > 1 and require_pat(pat):
         current_id = load_item(messages, sys.argv[1], pat, loaded_ids, org_state) or current_id
-    else:
-        print("No work item loaded yet. Type 'load <id>' or ask a general question.\n")
+
+    # sentence=True matches the completer against the whole line typed so far
+    # (not just the current word), so typing "/" shows every skill, and
+    # typing "/set " narrows to "/set repo"/"/set org" rather than treating
+    # "/set" and "repo" as separate words to complete independently.
+    # Only used on a real terminal -- PromptSession doesn't degrade cleanly
+    # for piped/non-tty input (garbled output, dropped lines), so scripted
+    # or redirected input falls back to plain input() same as before.
+    session = (PromptSession(completer=WordCompleter(SKILL_COMMANDS, sentence=True, ignore_case=True))
+               if _PROMPT_TOOLKIT_AVAILABLE and sys.stdin.isatty() else None)
 
     while True:
         try:
-            user_input = input(">>> ").strip()
+            user_input = (session.prompt(">>> ") if session else input(">>> ")).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
         if not user_input:
             continue
-        if user_input.lower() in ("exit", "quit"):
+        if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
             break
         try:
+            if SKILLS_RE.match(user_input):
+                print(SKILLS_TEXT + "\n")
+                continue
+
             if SET_REPO_RE.match(user_input):
                 for role in REPO_ROLES:
                     repo_state[role] = {"url": None, "branch": None}
-                print("Repos cleared — you'll be prompted again on the next 'estimate'.\n")
+                print("Repos cleared — you'll be prompted again on the next /estimate.\n")
                 continue
 
             if SET_ORG_RE.match(user_input):
@@ -776,27 +1004,27 @@ def main():
                     estimate_with_codebase(messages, user_input, pat, loaded_ids, repo_state, org_state)
                 continue
 
-            # Checked ahead of the load branch: "load 97057 and analyse dependency
-            # between 97057 and 97061" mentions "load" too, but dependency intent wins.
-            dep_ids = ID_RE.findall(user_input)
-            if DEPENDENCY_RE.search(user_input) and len(dep_ids) >= 2:
-                if require_pat(pat):
+            if DEPENDENCY_RE.match(user_input):
+                dep_ids = ID_RE.findall(user_input)
+                if len(dep_ids) < 2:
+                    print("Usage: /dependency <id> and <id>\n")
+                elif require_pat(pat):
                     analyse_dependency(messages, dep_ids[0], dep_ids[1], pat, loaded_ids, org_state)
                 continue
 
-            # Treat it as a load request whenever "load" and a work item number
-            # appear together anywhere in the message, not just as a prefix —
-            # covers phrasing like "now load workitem 97061 and give the title".
-            if re.search(r"\bload\b", user_input, re.IGNORECASE) and ID_RE.search(user_input):
-                if require_pat(pat):
-                    current_id = load_item(messages, user_input, pat, loaded_ids, org_state) or current_id
+            if LOAD_RE.match(user_input):
+                if ID_RE.search(user_input):
+                    if require_pat(pat):
+                        current_id = load_item(messages, user_input, pat, loaded_ids, org_state) or current_id
+                else:
+                    print("Usage: /load <id>\n")
                 continue
 
             correct_match = CORRECT_RE.match(user_input)
             if correct_match:
                 note = correct_match.group(1).strip()
                 if not note:
-                    print("Usage: correct <what was wrong and what it should have been>\n")
+                    print("Usage: /correct <what was wrong and what it should have been>\n")
                 else:
                     save_correction(current_id, note)
                     tag = f"#{current_id}" if current_id else "general"
