@@ -43,7 +43,7 @@ except ImportError:
     # prompt_toolkit isn't installed.
     _PROMPT_TOOLKIT_AVAILABLE = False
 
-from ado_common import (
+from .ado_common import (
     DEFAULT_ORG,
     DEFAULT_PROJECT,
     DEFAULT_MODEL,
@@ -59,7 +59,7 @@ from ado_common import (
     build_item_corrections_block,
     strip_html,
 )
-from codebase_context import (
+from .codebase_context import (
     clone_or_update_repo,
     build_codebase_context,
     build_architecture_overview,
@@ -67,8 +67,8 @@ from codebase_context import (
     CODEBASE_CONTEXT_CHAR_BUDGET,
     ARCHITECTURE_CHAR_BUDGET,
 )
-from transcript_utils import load_transcript, chunk_transcript
-from teams_notify import send_to_teams
+from .transcript_utils import load_transcript, chunk_transcript
+from .teams_notify import send_to_teams
 
 # Matches the shell alias in ~/.zshrc ("ollama run agent") -- shown in the
 # startup banner so it's clear which tool/model you're talking to.

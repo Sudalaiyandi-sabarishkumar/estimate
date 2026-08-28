@@ -20,7 +20,7 @@ import json
 import os
 import sys
 
-from ado_common import (
+from rq_agent.ado_common import (
     DEFAULT_ORG,
     DEFAULT_PROJECT,
     DEFAULT_MODEL,

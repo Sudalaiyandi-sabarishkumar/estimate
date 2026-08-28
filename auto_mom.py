@@ -51,8 +51,8 @@ from datetime import datetime, timezone
 
 from teams_graph import (get_app_token, resolve_meeting_id,
                           list_new_transcripts, get_transcript_vtt)
-from teams_notify import send_to_teams
-from task_breakdown_chat import run_mom_pipeline
+from rq_agent.teams_notify import send_to_teams
+from rq_agent.task_breakdown_chat import run_mom_pipeline
 
 STATE_FILE = "auto_mom_state.json"
 MEETINGS_CONFIG_FILE = "meetings_config.json"

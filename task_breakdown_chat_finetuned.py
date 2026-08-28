@@ -21,7 +21,7 @@ import sys
 from mlx_lm import load, stream_generate
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
 
-import task_breakdown_chat as tbc
+import rq_agent.task_breakdown_chat as tbc
 
 MODEL_REPO = "mlx-community/Qwen2.5-Coder-3B-Instruct-4bit"
 ADAPTER_PATH = "training/adapters"
