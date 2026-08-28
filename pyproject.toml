@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rq-agent"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local LLM developer/PM assistant (Azure DevOps task breakdown, codebase-aware estimation, Minutes of Meeting) backed by Ollama."
 requires-python = ">=3.9"
 dependencies = [
