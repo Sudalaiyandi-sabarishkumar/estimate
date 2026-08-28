@@ -184,6 +184,9 @@ SET_REPO_RE = re.compile(r"^/(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNO
 SET_ORG_RE = re.compile(r"^/(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
 MOM_RE = re.compile(r"^/mom\s+(.+)$", re.IGNORECASE)
 ADDCALL_RE = re.compile(r"^/(?:addcall|add-call|add\s+call)\b", re.IGNORECASE)
+LISTCALLS_RE = re.compile(r"^/(?:listcalls|list-calls|list\s+calls)\b", re.IGNORECASE)
+REMOVECALL_RE = re.compile(r"^/(?:removecall|remove-call|remove\s+call|deletecall|delete-call|delete\s+call)\s*(.*)$",
+                            re.IGNORECASE)
 SKILLS_RE = re.compile(r"^/skills\b", re.IGNORECASE)
 
 # Kept deliberately small, not sized to the context window's actual ceiling.
@@ -203,6 +206,8 @@ SKILLS_TEXT = """Available skills:
                                      (optionally posts to Teams -- see TEAMS_WEBHOOK_URL)
   /addcall                          Add a recurring Teams meeting to the automatic
                                      transcript-pull + summarize + post pipeline
+  /listcalls                        List configured calls and where each is scheduled
+  /removecall <name>                Remove a configured call
   /dependency <id> and <id>         Check dependency direction between two work items
   /correct <note>                   Save a correction, remembered in future sessions
   /set repo                         Change the Frontend/Backend/Mobile repos
@@ -215,8 +220,8 @@ Anything else you type is just a normal question to the model."""
 # above) -- kept as plain command names/prefixes, not full usage strings, so
 # completing one still leaves room to type the actual <id>/<note>/<file> after it.
 SKILL_COMMANDS = [
-    "/load", "/estimate", "/mom", "/addcall", "/dependency", "/correct",
-    "/set repo", "/set org", "/skills", "/exit",
+    "/load", "/estimate", "/mom", "/addcall", "/listcalls", "/removecall",
+    "/dependency", "/correct", "/set repo", "/set org", "/skills", "/exit",
 ]
 
 
@@ -1157,6 +1162,124 @@ def add_scheduled_call(user_input: str):
               "(see run_auto_mom.sh's docstring).\n")
 
 
+def _workflow_path():
+    """Best-effort path to .github/workflows/auto_mom.yml -- only resolves
+    to something real when running from a repo checkout (see the same
+    caveat in add_scheduled_call() re: the Homebrew-installed rq-agent
+    having no such directory at all)."""
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(repo_dir, ".github", "workflows", "auto_mom.yml")
+
+
+def _redact(value: str, keep: int = 50) -> str:
+    return value if len(value) <= keep else value[:keep] + "..."
+
+
+def list_scheduled_calls():
+    """/listcalls: shows every meeting in meetings_config.json, plus
+    whether each one currently has a matching local crontab entry and/or a
+    matching entry in the GitHub Actions workflow's schedule: list (both
+    tagged '# auto_mom:<name>', same convention add_scheduled_call() writes)
+    -- so it's easy to spot a meeting that's configured but not actually
+    scheduled anywhere yet."""
+    if not os.path.exists(MEETINGS_CONFIG_FILE):
+        print(f"No calls configured yet ({MEETINGS_CONFIG_FILE} doesn't exist). "
+              f"Use /addcall to add one.\n")
+        return
+    with open(MEETINGS_CONFIG_FILE) as f:
+        meetings = json.load(f)
+    if not meetings:
+        print("No calls configured yet. Use /addcall to add one.\n")
+        return
+
+    try:
+        crontab_out = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+    except FileNotFoundError:
+        crontab_out = ""
+
+    workflow_text = ""
+    workflow_path = _workflow_path()
+    if os.path.exists(workflow_path):
+        with open(workflow_path) as f:
+            workflow_text = f.read()
+
+    print(f"{len(meetings)} call(s) configured:\n")
+    for m in meetings:
+        tag = f"# auto_mom:{m.get('name')}"
+        in_cron = tag in crontab_out
+        in_workflow = tag in workflow_text
+        print(f"- {m.get('name')}")
+        print(f"    Organizer:  {m.get('organizer_user_id')}")
+        print(f"    Join URL:   {m.get('join_url')}")
+        print(f"    Webhook:    {_redact(m.get('webhook_url', ''))}")
+        print(f"    Scheduled:  local crontab: {'yes' if in_cron else 'no'}"
+              f" | GitHub Actions workflow: {'yes' if in_workflow else 'no'}")
+        print()
+
+
+def remove_scheduled_call(user_input: str):
+    """/removecall <name>: removes one meeting from meetings_config.json and
+    offers to remove its matching local crontab line. Can't safely
+    auto-edit-and-push the GitHub Actions workflow or the MEETINGS_CONFIG_JSON
+    secret for the same reasons add_scheduled_call() doesn't -- prints what
+    to clean up there instead."""
+    match = REMOVECALL_RE.match(user_input)
+    name = match.group(1).strip() if match else ""
+    if not name:
+        print("Usage: /removecall <name>\n")
+        return
+
+    if not os.path.exists(MEETINGS_CONFIG_FILE):
+        print(f"No calls configured yet ({MEETINGS_CONFIG_FILE} doesn't exist).\n")
+        return
+    with open(MEETINGS_CONFIG_FILE) as f:
+        meetings = json.load(f)
+    if not any(m.get("name") == name for m in meetings):
+        print(f"No call named '{name}' found. Use /listcalls to see what's configured.\n")
+        return
+
+    confirm = input(f"Remove '{name}' from {MEETINGS_CONFIG_FILE}? (y/N): ").strip().lower()
+    if confirm not in ("y", "yes"):
+        print("Cancelled.\n")
+        return
+
+    meetings = [m for m in meetings if m.get("name") != name]
+    with open(MEETINGS_CONFIG_FILE, "w") as f:
+        json.dump(meetings, f, indent=2)
+    print(f"Removed from {MEETINGS_CONFIG_FILE}.\n")
+
+    cron_tag = f"# auto_mom:{name}"
+    try:
+        existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+        existing_lines = existing.stdout.splitlines() if existing.returncode == 0 else []
+    except FileNotFoundError:
+        existing_lines = []
+
+    if any(cron_tag in line for line in existing_lines):
+        remove_local = input(f"A local crontab entry for '{name}' exists -- remove it too? "
+                              f"(y/N): ").strip().lower()
+        if remove_local in ("y", "yes"):
+            kept_lines = [line for line in existing_lines if cron_tag not in line]
+            result = subprocess.run(["crontab", "-"], input="\n".join(kept_lines) + "\n", text=True)
+            if result.returncode == 0:
+                print("Removed from crontab.\n")
+            else:
+                print(f"Couldn't update crontab -- remove the line tagged '{cron_tag}' "
+                      f"manually with `crontab -e`.\n")
+
+    workflow_path = _workflow_path()
+    if os.path.exists(workflow_path):
+        with open(workflow_path) as f:
+            has_workflow_entry = cron_tag in f.read()
+        if has_workflow_entry:
+            print(f"Reminder: also remove the line tagged '{cron_tag}' from "
+                  f"{workflow_path}'s schedule: list, then commit and push to main.\n")
+
+    print("Reminder: also update the MEETINGS_CONFIG_JSON repository secret with the "
+          f"current contents of {MEETINGS_CONFIG_FILE} (now missing '{name}') -- it's a "
+          f"separate copy the GitHub Actions workflow reads.\n")
+
+
 def main():
     pat = os.environ.get("AZURE_DEVOPS_PAT")
 
@@ -1231,6 +1354,14 @@ def main():
 
             if ADDCALL_RE.match(user_input):
                 add_scheduled_call(user_input)
+                continue
+
+            if LISTCALLS_RE.match(user_input):
+                list_scheduled_calls()
+                continue
+
+            if REMOVECALL_RE.match(user_input):
+                remove_scheduled_call(user_input)
                 continue
 
             if ESTIMATE_RE.match(user_input):
