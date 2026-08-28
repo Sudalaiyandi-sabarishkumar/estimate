@@ -31,7 +31,7 @@ import re
 import subprocess
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 try:
     from prompt_toolkit import PromptSession
@@ -984,6 +984,42 @@ def _parse_time(text: str):
     return None, None, f"Didn't recognize time '{text}'. Try '11:00' (24h) or '11:00 AM'."
 
 
+def _expand_cron_dow(cron_dow: str) -> set:
+    """Reverses _parse_days_to_cron's output back into a set of weekday
+    ints (0=Sunday..6=Saturday) -- only needs to handle the shapes that
+    function actually produces: '*', 'a-b', or a comma-separated list."""
+    if cron_dow == "*":
+        return set(range(7))
+    days = set()
+    for part in cron_dow.split(","):
+        if "-" in part:
+            start, end = part.split("-")
+            days.update(range(int(start), int(end) + 1))
+        else:
+            days.add(int(part))
+    return days
+
+
+def _local_to_utc_cron(cron_dow_local: str, hour: int, minute: int):
+    """Converts a local day-of-week set + local time into the UTC
+    equivalents GitHub Actions' `schedule:` cron needs (it's always UTC,
+    regardless of where the workflow runs). Handles the day rolling over
+    (e.g. a late-night local time landing on the *previous* UTC day) by
+    converting one reference date through the system's actual local
+    timezone rather than assuming a fixed offset -- correct even if this
+    ever runs somewhere with DST, though IST (this machine) doesn't have it.
+    Returns (utc_cron_dow, utc_hour, utc_minute)."""
+    local_tz = datetime.now().astimezone().tzinfo
+    reference = datetime(2024, 1, 1, hour, minute, tzinfo=local_tz)  # a Monday
+    reference_utc = reference.astimezone(timezone.utc)
+    day_shift = (reference_utc.date() - reference.date()).days
+
+    local_days = _expand_cron_dow(cron_dow_local)
+    utc_days = {(d + day_shift) % 7 for d in local_days}
+    utc_cron_dow = ",".join(str(d) for d in sorted(utc_days))
+    return utc_cron_dow, reference_utc.hour, reference_utc.minute
+
+
 def add_scheduled_call(user_input: str):
     """/addcall: interactively collects everything auto_mom.py needs for one
     recurring meeting's automatic pull-transcript + summarize + post
@@ -1062,19 +1098,40 @@ def add_scheduled_call(user_input: str):
         json.dump(meetings, f, indent=2)
     print(f"\nSaved to {MEETINGS_CONFIG_FILE}.")
 
-    repo_dir = os.path.dirname(os.path.abspath(__file__))
+    cron_tag = f"# auto_mom:{name}"
+    utc_dow, utc_hour, utc_minute = _local_to_utc_cron(cron_dow, check_dt.hour, check_dt.minute)
+
+    # --- GitHub Actions path (recommended: doesn't need any laptop on) ---
+    print(f"\nFor the GitHub Actions pipeline (checks at {check_dt.strftime('%H:%M')} local "
+          f"= {utc_hour:02d}:{utc_minute:02d} UTC), add this to .github/workflows/auto_mom.yml's "
+          f"`schedule:` list:")
+    print(f'  - cron: "{utc_minute} {utc_hour} * * {utc_dow}"  {cron_tag}\n')
+    print("Then commit and push that file to main -- schedule triggers only fire from the "
+          "default branch. Also update the MEETINGS_CONFIG_JSON repository secret with the "
+          f"full current contents of {MEETINGS_CONFIG_FILE} (paste the whole file, not just "
+          "this one entry) -- it's a separate copy the workflow reads, not this local file, "
+          "so this step is easy to forget.\n")
+
+    # --- Local crontab path (only if this machine will reliably be on) ---
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     script_path = os.path.join(repo_dir, "run_auto_mom.sh")
     log_path = os.path.join(repo_dir, "auto_mom.log")
-    cron_tag = f"# auto_mom:{name}"
-    cron_line = (f"{check_dt.minute} {check_dt.hour} * * {cron_dow} "
-                 f"{script_path} >> {log_path} 2>&1 {cron_tag}")
+    local_cron_line = (f"{check_dt.minute} {check_dt.hour} * * {cron_dow} "
+                        f"{script_path} >> {log_path} 2>&1 {cron_tag}")
 
-    print(f"\nCron line for this meeting (checks at {check_dt.strftime('%H:%M')}):")
-    print(f"  {cron_line}\n")
+    print("Alternatively, a local crontab entry on this machine (only reliable if this "
+          "machine is reliably on/awake at check time -- see the GitHub Actions path above "
+          "for why that's the recommended one):")
+    print(f"  {local_cron_line}\n")
+    if not os.path.exists(script_path):
+        print(f"Note: {script_path} doesn't exist -- this local-crontab option only works "
+              f"when running from a clone of the repo (not the Homebrew-installed rq-agent), "
+              f"since it needs run_auto_mom.sh alongside it. The GitHub Actions path above "
+              f"doesn't have this requirement.\n")
 
-    install = input("Add this to your crontab now? (y/N): ").strip().lower()
+    install = input("Add the local crontab line now anyway? (y/N): ").strip().lower()
     if install not in ("y", "yes"):
-        print("Not installed -- add that line yourself with `crontab -e` whenever you're ready.\n")
+        print("Not installed.\n")
         return
 
     try:
@@ -1087,7 +1144,7 @@ def add_scheduled_call(user_input: str):
     # Replace any earlier line for this same meeting name rather than piling
     # up duplicates each time /addcall is re-run for it.
     kept_lines = [line for line in existing_lines if cron_tag not in line]
-    kept_lines.append(cron_line)
+    kept_lines.append(local_cron_line)
     result = subprocess.run(["crontab", "-"], input="\n".join(kept_lines) + "\n", text=True)
     if result.returncode == 0:
         print("Installed -- `crontab -l` will show it.\n")

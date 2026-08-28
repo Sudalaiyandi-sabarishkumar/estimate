@@ -5,13 +5,27 @@ name: Auto MoM (Teams transcript pull + summarize + post)
 # conversation in the repo history for why (a laptop-cron version of this
 # was tried first and has the obvious "what if it's off" gap).
 #
-# Every 15 minutes is cheap here (free for public repos, and this repo is
-# public) so there's no need for auto_mom.py's old "figure out each
-# meeting's exact end time" cron math -- just check often and let
-# auto_mom_state.json (committed back below) skip anything already done.
+# One `cron:` entry per configured meeting, each timed to that meeting's own
+# end time + buffer (converted to UTC -- GitHub Actions schedules are always
+# UTC regardless of where the workflow runs), NOT a blind fixed-interval
+# poll -- with several meetings at different times, blind polling means
+# every meeting gets checked constantly all day for no benefit, and it's
+# indistinguishable in the log from an actually-targeted check. Every
+# invocation still checks *every* configured meeting regardless of which
+# entry triggered it (auto_mom.py's own job), so it doesn't matter if two
+# meetings' times are close together or coincide.
+#
+# /addcall (in the interactive CLI) computes and prints the exact line to
+# add here for a given meeting's day/end-time/buffer -- paste its output in
+# below rather than hand-computing the UTC conversion. No meetings are
+# configured yet, so `schedule:` is commented out entirely below (an empty
+# or null `schedule:` is invalid GitHub Actions syntax) -- uncomment it and
+# add entries once /addcall has printed at least one.
+#
+# on:
+#   schedule:
+#     - cron: "MM HH * * DOW"  # auto_mom:<meeting-name> -- from /addcall
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab, for testing
 
 permissions:
