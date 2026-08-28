@@ -26,6 +26,7 @@ Usage:
   python3 task_breakdown_chat.py 97061   # load a work item immediately
 """
 
+import html
 import json
 import re
 import subprocess
@@ -536,6 +537,102 @@ directly instead of inventing scenarios out of nothing.
 """
 
 
+def _md_inline_to_html(text: str) -> str:
+    """Minimal inline markdown -> HTML for text that only ever comes from
+    the model's own reply (not untrusted user input): escapes everything,
+    then restores just **bold** and the literal <br> tags the model uses
+    for multi-line table cells, so a step list inside one cell still breaks
+    onto separate lines instead of running together. Also drops the
+    backslash the model puts before a step number's period (e.g. "1\\.") --
+    that's markdown's own escaping so "1." isn't read as a list marker,
+    pointless once this is rendered as HTML instead, where it just shows up
+    as a stray backslash."""
+    text = re.sub(r"(\d)\\\.", r"\1.", text)
+    escaped = html.escape(text)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = escaped.replace("&lt;br&gt;", "<br>").replace("&lt;br/&gt;", "<br>")
+    return escaped
+
+
+def _parse_markdown_table(block: str):
+    """Returns (headers, rows) from a pipe-delimited markdown table, or
+    (None, None) if the block doesn't contain one (e.g. the model said the
+    acceptance criteria was too thin for real test cases instead)."""
+    table_lines = [l.strip() for l in block.splitlines() if l.strip().startswith("|")]
+    if len(table_lines) < 2:
+        return None, None
+
+    def split_row(line):
+        return [c.strip() for c in line.strip().strip("|").split("|")]
+
+    headers = split_row(table_lines[0])
+    rows = []
+    for line in table_lines[1:]:
+        cells = split_row(line)
+        if all(re.fullmatch(r":?-{2,}:?", c) for c in cells):
+            continue  # the header/body separator row (---|---|---)
+        rows.append(cells)
+    return headers, rows
+
+
+def render_test_cases_html(reply: str, item_id: str, title: str) -> str:
+    """Turns the model's raw markdown reply into a self-contained HTML page
+    with a real <table> -- raw markdown pipe-syntax reads as clutter
+    outside a markdown-aware viewer, which is exactly what a tester sharing
+    this with a team is going to open it in."""
+    testcases_match = re.search(r"##\s*Test Cases.*?\n(.*?)(?=\n##|\Z)", reply, re.DOTALL)
+    additional_match = re.search(r"##\s*Additional Scenarios.*?\n(.*?)(?=\n##|\Z)", reply, re.DOTALL)
+
+    if testcases_match:
+        headers, rows = _parse_markdown_table(testcases_match.group(1))
+        if headers and rows:
+            head_html = "".join(f"<th>{_md_inline_to_html(h)}</th>" for h in headers)
+            body_html = "".join(
+                "<tr>" + "".join(f"<td>{_md_inline_to_html(c)}</td>" for c in row) + "</tr>"
+                for row in rows
+            )
+            table_html = f"<table><thead><tr>{head_html}</tr></thead><tbody>{body_html}</tbody></table>"
+        else:
+            table_html = f"<p>{_md_inline_to_html(testcases_match.group(1).strip())}</p>"
+    else:
+        table_html = "<p><em>No test cases section found in the model's response.</em></p>"
+
+    if additional_match:
+        bullets = [l.strip().lstrip("-*").strip() for l in additional_match.group(1).splitlines()
+                   if l.strip().startswith(("-", "*"))]
+        additional_html = ("<ul>" + "".join(f"<li>{_md_inline_to_html(b)}</li>" for b in bullets) + "</ul>"
+                            if bullets else f"<p>{_md_inline_to_html(additional_match.group(1).strip())}</p>")
+    else:
+        additional_html = "<p><em>None given.</em></p>"
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Test Cases — #{item_id}</title>
+<style>
+  body {{ font-family: -apple-system, "Segoe UI", Arial, sans-serif; max-width: 1000px;
+          margin: 40px auto; padding: 0 20px; color: #1a1a1a; }}
+  h1 {{ font-size: 20px; }}
+  h2 {{ font-size: 16px; margin-top: 32px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }}
+  table {{ border-collapse: collapse; width: 100%; margin-top: 12px; }}
+  th, td {{ border: 1px solid #ccc; padding: 8px 10px; text-align: left; vertical-align: top; font-size: 14px; }}
+  th {{ background: #f2f2f2; }}
+  tr:nth-child(even) {{ background: #fafafa; }}
+  ul {{ font-size: 14px; }}
+</style>
+</head>
+<body>
+<h1>Test Cases — #{item_id}: {_md_inline_to_html(title)}</h1>
+<h2>Test Cases (from Acceptance Criteria)</h2>
+{table_html}
+<h2>Additional Scenarios to Consider</h2>
+{additional_html}
+</body>
+</html>
+"""
+
+
 def generate_test_cases(messages: list, user_input: str, pat: str, loaded_ids: set, org_state: dict):
     """/testcases <id>: fetches the work item and drafts formal test cases
     directly from its Given/When/Then acceptance criteria (the reliable
@@ -543,8 +640,11 @@ def generate_test_cases(messages: list, user_input: str, pat: str, loaded_ids: s
     separately-labeled list of additional edge cases the AC didn't cover
     (the more creative part -- suggestions to review, not guaranteed
     correct, but cheap to be wrong about since a tester just discards an
-    irrelevant suggestion rather than acting on a false claim). Saves to
-    test_cases_output/<id>_testcases.md, same pattern as /mom's file output."""
+    irrelevant suggestion rather than acting on a false claim). Saves as a
+    self-contained HTML page (test_cases_output/<id>_testcases.html) with a
+    real rendered table -- raw markdown pipe-syntax reads as clutter to
+    anyone opening it outside a markdown-aware viewer, which is exactly
+    what this is meant to be shared as."""
     match = ID_RE.search(user_input)
     if not match:
         print("Usage: /testcases <id>\n")
@@ -556,6 +656,7 @@ def generate_test_cases(messages: list, user_input: str, pat: str, loaded_ids: s
         print(error + "\n")
         return
     loaded_ids.add(item_id)
+    title = work_item.get("fields", {}).get("System.Title", "")
     related = fetch_related_context(org_state["org"], org_state["project"], work_item, pat)
     context = build_context_message(work_item, item_id, related)
 
@@ -572,9 +673,9 @@ def generate_test_cases(messages: list, user_input: str, pat: str, loaded_ids: s
     messages.append({"role": "assistant", "content": reply})
 
     os.makedirs("test_cases_output", exist_ok=True)
-    out_path = os.path.join("test_cases_output", f"{item_id}_testcases.md")
+    out_path = os.path.join("test_cases_output", f"{item_id}_testcases.html")
     with open(out_path, "w") as f:
-        f.write(reply)
+        f.write(render_test_cases_html(reply, item_id, title))
     print(f"\nSaved to {out_path}\n")
 
 
