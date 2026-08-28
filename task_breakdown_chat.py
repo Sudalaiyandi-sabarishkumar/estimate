@@ -26,9 +26,12 @@ Usage:
   python3 task_breakdown_chat.py 97061   # load a work item immediately
 """
 
+import json
 import re
+import subprocess
 import sys
 import os
+from datetime import datetime, timedelta
 
 try:
     from prompt_toolkit import PromptSession
@@ -180,6 +183,7 @@ ESTIMATE_RE = re.compile(r"^/estimate\b", re.IGNORECASE)
 SET_REPO_RE = re.compile(r"^/(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNORECASE)
 SET_ORG_RE = re.compile(r"^/(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
 MOM_RE = re.compile(r"^/mom\s+(.+)$", re.IGNORECASE)
+ADDCALL_RE = re.compile(r"^/(?:addcall|add-call|add\s+call)\b", re.IGNORECASE)
 SKILLS_RE = re.compile(r"^/skills\b", re.IGNORECASE)
 
 # Kept deliberately small, not sized to the context window's actual ceiling.
@@ -197,6 +201,8 @@ SKILLS_TEXT = """Available skills:
   /estimate <id>                    Codebase-aware estimate (Frontend/Backend/Mobile/Testing)
   /mom <transcript-file>             Minutes of Meeting + action items from a transcript
                                      (optionally posts to Teams -- see TEAMS_WEBHOOK_URL)
+  /addcall                          Add a recurring Teams meeting to the automatic
+                                     transcript-pull + summarize + post pipeline
   /dependency <id> and <id>         Check dependency direction between two work items
   /correct <note>                   Save a correction, remembered in future sessions
   /set repo                         Change the Frontend/Backend/Mobile repos
@@ -209,7 +215,7 @@ Anything else you type is just a normal question to the model."""
 # above) -- kept as plain command names/prefixes, not full usage strings, so
 # completing one still leaves room to type the actual <id>/<note>/<file> after it.
 SKILL_COMMANDS = [
-    "/load", "/estimate", "/mom", "/dependency", "/correct",
+    "/load", "/estimate", "/mom", "/addcall", "/dependency", "/correct",
     "/set repo", "/set org", "/skills", "/exit",
 ]
 
@@ -927,6 +933,173 @@ def offer_teams_post(title: str, reply: str):
         print(f"Couldn't post to Teams: {error}\n")
 
 
+# Kept as a literal here rather than imported from auto_mom.py, which
+# imports run_mom_pipeline from *this* module -- importing back the other
+# way would be circular. Keep this in sync with auto_mom.MEETINGS_CONFIG_FILE
+# if that ever changes.
+MEETINGS_CONFIG_FILE = "meetings_config.json"
+
+_DAY_ALIASES = {
+    "sun": 0, "sunday": 0, "mon": 1, "monday": 1, "tue": 2, "tues": 2,
+    "tuesday": 2, "wed": 3, "wednesday": 3, "thu": 4, "thurs": 4,
+    "thursday": 4, "fri": 5, "friday": 5, "sat": 6, "saturday": 6,
+}
+
+
+def _parse_days_to_cron(text: str):
+    """Returns (cron_dow_field, error). Accepts shortcuts ('daily',
+    'weekdays', 'weekends') or a comma/space-separated list of day
+    names/abbreviations, and turns either into a cron day-of-week field
+    (0=Sunday..6=Saturday)."""
+    text = text.strip().lower()
+    if text in ("daily", "everyday", "every day"):
+        return "*", None
+    if text in ("weekdays", "mon-fri", "monday-friday"):
+        return "1-5", None
+    if text in ("weekends", "sat-sun", "saturday-sunday"):
+        return "0,6", None
+    days = []
+    for part in re.split(r"[,\s]+", text):
+        if not part:
+            continue
+        if part not in _DAY_ALIASES:
+            return None, (f"Didn't recognize day '{part}'. Use day names (mon, tuesday, ...), "
+                           f"'weekdays', 'weekends', or 'daily'.")
+        days.append(_DAY_ALIASES[part])
+    if not days:
+        return None, "No days given."
+    return ",".join(str(d) for d in sorted(set(days))), None
+
+
+def _parse_time(text: str):
+    """Returns (hour, minute, error) on a 24h clock, accepting '11:00',
+    '11:00 AM', '3:30pm', or '15:30'."""
+    text = text.strip()
+    for fmt in ("%H:%M", "%I:%M %p", "%I:%M%p", "%I %p", "%H"):
+        try:
+            dt = datetime.strptime(text, fmt)
+            return dt.hour, dt.minute, None
+        except ValueError:
+            continue
+    return None, None, f"Didn't recognize time '{text}'. Try '11:00' (24h) or '11:00 AM'."
+
+
+def add_scheduled_call(user_input: str):
+    """/addcall: interactively collects everything auto_mom.py needs for one
+    recurring meeting's automatic pull-transcript + summarize + post
+    pipeline -- join URL, organizer, target channel webhook, and when to
+    check for it -- then writes it to meetings_config.json and offers to
+    install the matching crontab line. Nothing is written or installed
+    until you confirm; cancel at any prompt by leaving it blank."""
+    print("Adding a new recurring call to the automatic MoM pipeline.\n")
+
+    name = input("Short name for this meeting (e.g. daily-standup, no spaces): ").strip()
+    if not name:
+        print("Cancelled -- no name given.\n")
+        return
+    name = re.sub(r"\s+", "-", name)
+
+    meetings = []
+    if os.path.exists(MEETINGS_CONFIG_FILE):
+        with open(MEETINGS_CONFIG_FILE) as f:
+            meetings = json.load(f)
+    if any(m.get("name") == name for m in meetings):
+        overwrite = input(f"'{name}' already exists in {MEETINGS_CONFIG_FILE} "
+                           f"-- overwrite it? (y/N): ").strip().lower()
+        if overwrite not in ("y", "yes"):
+            print("Cancelled.\n")
+            return
+        meetings = [m for m in meetings if m.get("name") != name]
+
+    print("\nOrganizer's Entra object ID -- whoever organizes this recurring meeting.")
+    print("Find it: Entra admin center -> Users -> that person -> the 'Object ID' field.")
+    organizer_user_id = input("Organizer's object ID: ").strip()
+    if not organizer_user_id:
+        print("Cancelled -- organizer's object ID is required.\n")
+        return
+
+    join_url = input("\nMeeting's Join URL (from its calendar invite): ").strip()
+    if not join_url:
+        print("Cancelled -- join URL is required.\n")
+        return
+
+    print("\nTeams channel webhook URL -- from that channel's \"...\" -> Workflows ->")
+    print("\"Send webhook alerts to a channel\" template (see TEAMS_SETUP.md).")
+    webhook_url = input("Webhook URL: ").strip()
+    if not webhook_url:
+        print("Cancelled -- webhook URL is required.\n")
+        return
+
+    days_text = input("\nWhich days does it recur? (e.g. 'weekdays', 'daily', 'mon,wed,fri'): ").strip()
+    cron_dow, error = _parse_days_to_cron(days_text)
+    if error:
+        print(error + "\n")
+        return
+
+    end_time_text = input("\nWhat time does the meeting usually END? (e.g. 11:00 or 11:00 AM): ").strip()
+    hour, minute, error = _parse_time(end_time_text)
+    if error:
+        print(error + "\n")
+        return
+
+    buffer_text = input("\nBuffer in minutes before checking, to let Teams finish "
+                         "processing the transcript [default 20]: ").strip()
+    try:
+        buffer_minutes = int(buffer_text) if buffer_text else 20
+    except ValueError:
+        print(f"'{buffer_text}' isn't a number -- cancelled.\n")
+        return
+
+    check_dt = datetime(2000, 1, 1, hour, minute) + timedelta(minutes=buffer_minutes)
+
+    meetings.append({
+        "name": name,
+        "organizer_user_id": organizer_user_id,
+        "join_url": join_url,
+        "webhook_url": webhook_url,
+    })
+    with open(MEETINGS_CONFIG_FILE, "w") as f:
+        json.dump(meetings, f, indent=2)
+    print(f"\nSaved to {MEETINGS_CONFIG_FILE}.")
+
+    repo_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(repo_dir, "run_auto_mom.sh")
+    log_path = os.path.join(repo_dir, "auto_mom.log")
+    cron_tag = f"# auto_mom:{name}"
+    cron_line = (f"{check_dt.minute} {check_dt.hour} * * {cron_dow} "
+                 f"{script_path} >> {log_path} 2>&1 {cron_tag}")
+
+    print(f"\nCron line for this meeting (checks at {check_dt.strftime('%H:%M')}):")
+    print(f"  {cron_line}\n")
+
+    install = input("Add this to your crontab now? (y/N): ").strip().lower()
+    if install not in ("y", "yes"):
+        print("Not installed -- add that line yourself with `crontab -e` whenever you're ready.\n")
+        return
+
+    try:
+        existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    except FileNotFoundError:
+        print("`crontab` isn't available on this system -- add the line above manually.\n")
+        return
+    existing_lines = existing.stdout.splitlines() if existing.returncode == 0 else []
+
+    # Replace any earlier line for this same meeting name rather than piling
+    # up duplicates each time /addcall is re-run for it.
+    kept_lines = [line for line in existing_lines if cron_tag not in line]
+    kept_lines.append(cron_line)
+    result = subprocess.run(["crontab", "-"], input="\n".join(kept_lines) + "\n", text=True)
+    if result.returncode == 0:
+        print("Installed -- `crontab -l` will show it.\n")
+    else:
+        print("Couldn't update crontab -- add the line above manually with `crontab -e`.\n")
+
+    if not os.path.exists(os.path.expanduser("~/.agent_teams_env")):
+        print("Reminder: ~/.agent_teams_env doesn't exist yet, so this won't actually run "
+              "until TEAMS_TENANT_ID/TEAMS_CLIENT_ID/TEAMS_CLIENT_SECRET are set there "
+              "(see run_auto_mom.sh's docstring).\n")
+
+
 def main():
     pat = os.environ.get("AZURE_DEVOPS_PAT")
 
@@ -997,6 +1170,10 @@ def main():
 
             if MOM_RE.match(user_input):
                 generate_mom(messages, user_input)
+                continue
+
+            if ADDCALL_RE.match(user_input):
+                add_scheduled_call(user_input)
                 continue
 
             if ESTIMATE_RE.match(user_input):

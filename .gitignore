@@ -10,3 +10,4 @@ training/*.log
 mom_output/
 auto_mom_state.json
 auto_mom.log
+meetings_config.json
