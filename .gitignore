@@ -8,7 +8,6 @@ training/*.log
 .DS_Store
 .repo_cache/
 mom_output/
-auto_mom_state.json
 auto_mom.log
 meetings_config.json
 rq_agent.egg-info/

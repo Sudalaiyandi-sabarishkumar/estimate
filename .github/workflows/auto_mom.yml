@@ -1,0 +1,65 @@
+name: Auto MoM (Teams transcript pull + summarize + post)
+
+# Runs on GitHub's infrastructure instead of anyone's laptop, specifically so
+# this doesn't depend on any one person's machine being on -- see the
+# conversation in the repo history for why (a laptop-cron version of this
+# was tried first and has the obvious "what if it's off" gap).
+#
+# Every 15 minutes is cheap here (free for public repos, and this repo is
+# public) so there's no need for auto_mom.py's old "figure out each
+# meeting's exact end time" cron math -- just check often and let
+# auto_mom_state.json (committed back below) skip anything already done.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab, for testing
+
+permissions:
+  contents: write  # needed to commit auto_mom_state.json back after a run
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install rq_agent package
+        run: pip install -e .
+
+      - name: Write meetings_config.json from secret
+        # Kept as a secret, not committed to the repo -- this repo is public,
+        # and meetings_config.json contains each meeting's webhook URL,
+        # which is a bearer credential (anyone with it can post to that
+        # channel) plus the organizer's object ID. Neither belongs in a
+        # public diff.
+        env:
+          MEETINGS_CONFIG_JSON: ${{ secrets.MEETINGS_CONFIG_JSON }}
+        run: echo "$MEETINGS_CONFIG_JSON" > meetings_config.json
+
+      - name: Run auto_mom.py
+        env:
+          TEAMS_TENANT_ID: ${{ secrets.TEAMS_TENANT_ID }}
+          TEAMS_CLIENT_ID: ${{ secrets.TEAMS_CLIENT_ID }}
+          TEAMS_CLIENT_SECRET: ${{ secrets.TEAMS_CLIENT_SECRET }}
+        run: python3 auto_mom.py
+
+      - name: Commit updated state, if anything changed
+        # auto_mom_state.json tracks which transcripts have already been
+        # posted (per meeting) so a meeting isn't summarized twice -- it has
+        # to survive between runs, and GitHub Actions runners are thrown
+        # away after every run, so "commit it back to the repo" is the
+        # persistence mechanism. Nothing sensitive lives in it -- only
+        # opaque Graph object/transcript IDs, no credentials or URLs.
+        run: |
+          rm -f meetings_config.json  # never let the secret-derived file reach a commit
+          if ! git diff --quiet -- auto_mom_state.json; then
+            git config user.name "auto-mom-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add auto_mom_state.json
+            git commit -m "Update auto_mom_state.json [skip ci]"
+            git push
+          fi
