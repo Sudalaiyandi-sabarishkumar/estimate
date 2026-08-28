@@ -179,6 +179,7 @@ ID_RE = re.compile(r"\b\d{4,}\b")
 LOAD_RE = re.compile(r"^/load\b", re.IGNORECASE)
 CORRECT_RE = re.compile(r"^/(?:correct|correction)\b[:\s]*(.*)$", re.IGNORECASE)
 DEPENDENCY_RE = re.compile(r"^/(?:analyse\s+)?dependency\b", re.IGNORECASE)
+TESTCASES_RE = re.compile(r"^/(?:testcases|test-cases|test\s+cases)\b", re.IGNORECASE)
 ESTIMATE_RE = re.compile(r"^/estimate\b", re.IGNORECASE)
 SET_REPO_RE = re.compile(r"^/(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNORECASE)
 SET_ORG_RE = re.compile(r"^/(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
@@ -209,6 +210,7 @@ SKILLS_TEXT = """Available skills:
   /listcalls                        List configured calls and where each is scheduled
   /removecall <name>                Remove a configured call
   /dependency <id> and <id>         Check dependency direction between two work items
+  /testcases <id>                   Draft test cases from a work item's acceptance criteria
   /correct <note>                   Save a correction, remembered in future sessions
   /set repo                         Change the Frontend/Backend/Mobile repos
   /set org                          Change the Azure DevOps organisation/project
@@ -221,7 +223,7 @@ Anything else you type is just a normal question to the model."""
 # completing one still leaves room to type the actual <id>/<note>/<file> after it.
 SKILL_COMMANDS = [
     "/load", "/estimate", "/mom", "/addcall", "/listcalls", "/removecall",
-    "/dependency", "/correct", "/set repo", "/set org", "/skills", "/exit",
+    "/dependency", "/testcases", "/correct", "/set repo", "/set org", "/skills", "/exit",
 ]
 
 
@@ -501,6 +503,79 @@ def analyse_dependency(messages: list, id_a: str, id_b: str, pat: str, loaded_id
     if reply is not None:
         messages.append({"role": "assistant", "content": reply})
     print()
+
+
+TESTCASES_SYSTEM_PROMPT = """You are a QA engineer converting a work item's acceptance \
+criteria into formal test cases.
+
+Base the test cases ONLY on what the acceptance criteria actually says -- specific field \
+names, values, thresholds, and messages it mentions must be used exactly as given, never \
+paraphrased or invented. This is a reformatting task, not a creative one: every fact you \
+need is already in the acceptance criteria."""
+
+TESTCASES_INSTRUCTION = """Produce test cases in exactly this structure:
+
+## Test Cases (from Acceptance Criteria)
+A markdown table with columns: ID | Title | Preconditions | Steps | Expected Result.
+One row per distinct Given/When/Then scenario in the acceptance criteria above -- if a \
+scenario has a clear negative/alternate branch (e.g. an "If X... else Y" or a validation \
+failure), give it its own row rather than folding it into the happy-path row. Number IDs \
+TC-1, TC-2, etc. Use the field names, values, and messages exactly as written in the \
+acceptance criteria -- do not paraphrase specific strings like error messages.
+
+## Additional Scenarios to Consider
+Bullet list of edge/negative cases NOT explicitly covered by the acceptance criteria above \
+(e.g. invalid input, boundary values, interrupted flows, network failure) -- things a tester \
+would want to at least consider, not things guaranteed correct. Label this section clearly \
+as suggestions for review, since unlike the table above, these aren't grounded in anything \
+the ticket actually specifies. If the acceptance criteria is already unusually thorough, \
+this section can be short rather than padded out.
+
+If the acceptance criteria is empty or too thin to derive real test cases from, say so \
+directly instead of inventing scenarios out of nothing.
+"""
+
+
+def generate_test_cases(messages: list, user_input: str, pat: str, loaded_ids: set, org_state: dict):
+    """/testcases <id>: fetches the work item and drafts formal test cases
+    directly from its Given/When/Then acceptance criteria (the reliable
+    part -- pure reformatting of facts already in the ticket), plus a
+    separately-labeled list of additional edge cases the AC didn't cover
+    (the more creative part -- suggestions to review, not guaranteed
+    correct, but cheap to be wrong about since a tester just discards an
+    irrelevant suggestion rather than acting on a false claim). Saves to
+    test_cases_output/<id>_testcases.md, same pattern as /mom's file output."""
+    match = ID_RE.search(user_input)
+    if not match:
+        print("Usage: /testcases <id>\n")
+        return
+    item_id = match.group()
+    print(f"Loading work item #{item_id} from Azure DevOps...")
+    work_item, error = fetch_work_item(org_state["org"], org_state["project"], item_id, pat)
+    if work_item is None:
+        print(error + "\n")
+        return
+    loaded_ids.add(item_id)
+    related = fetch_related_context(org_state["org"], org_state["project"], work_item, pat)
+    context = build_context_message(work_item, item_id, related)
+
+    print()
+    reply = call_ollama(
+        [{"role": "system", "content": TESTCASES_SYSTEM_PROMPT},
+         {"role": "user", "content": context + "\n\n" + TESTCASES_INSTRUCTION}],
+        DEFAULT_MODEL, temperature=0)
+    if reply is None:
+        print()
+        return
+
+    messages.append({"role": "user", "content": f"(Generated test cases for #{item_id})"})
+    messages.append({"role": "assistant", "content": reply})
+
+    os.makedirs("test_cases_output", exist_ok=True)
+    out_path = os.path.join("test_cases_output", f"{item_id}_testcases.md")
+    with open(out_path, "w") as f:
+        f.write(reply)
+    print(f"\nSaved to {out_path}\n")
 
 
 # Phase 1 of the Governance & Scrum MoM + Action Items agent: reads a
@@ -1375,6 +1450,13 @@ def main():
                     print("Usage: /dependency <id> and <id>\n")
                 elif require_pat(pat):
                     analyse_dependency(messages, dep_ids[0], dep_ids[1], pat, loaded_ids, org_state)
+                continue
+
+            if TESTCASES_RE.match(user_input):
+                if not ID_RE.search(user_input):
+                    print("Usage: /testcases <id>\n")
+                elif require_pat(pat):
+                    generate_test_cases(messages, user_input, pat, loaded_ids, org_state)
                 continue
 
             if LOAD_RE.match(user_input):
