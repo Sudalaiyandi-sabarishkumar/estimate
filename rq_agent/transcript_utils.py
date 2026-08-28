@@ -25,23 +25,37 @@ _TIMESTAMP_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}
 _VOICE_TAG_RE = re.compile(r"<v\s+([^>]+)>(.*?)</v>", re.DOTALL)
 
 
-def _parse_vtt(raw: str) -> str:
+def _parse_vtt(raw: str, keep_timestamps: bool = False) -> str:
+    """keep_timestamps=False (the /mom default, unchanged) drops cue
+    numbers and timing entirely -- MoM never needed them. keep_timestamps=
+    True (for /requirements, which needs a real citation trail) prefixes
+    each speaker line with its cue's start time instead of discarding it,
+    e.g. "[00:00:03.500] Jane Doe: Let's get started" -- read from the
+    timing line that precedes each <v> cue, since the cue itself doesn't
+    carry it."""
     lines = []
+    pending_start = None
     for line in raw.splitlines():
         line = line.strip()
-        if not line or line == "WEBVTT" or _CUE_NUMBER_RE.match(line) or _TIMESTAMP_RE.match(line):
+        if not line or line == "WEBVTT" or _CUE_NUMBER_RE.match(line):
+            continue
+        if _TIMESTAMP_RE.match(line):
+            pending_start = line.split("-->")[0].strip()
             continue
         m = _VOICE_TAG_RE.search(line)
         if m:
             speaker, text = m.group(1).strip(), m.group(2).strip()
-            lines.append(f"{speaker}: {text}")
+            prefix = f"[{pending_start}] " if keep_timestamps and pending_start else ""
+            lines.append(f"{prefix}{speaker}: {text}")
         else:
             lines.append(line)
     return "\n".join(lines)
 
 
-def load_transcript(path: str) -> str:
-    """Returns (text, error). Exactly one is None."""
+def load_transcript(path: str, keep_timestamps: bool = False) -> str:
+    """Returns (text, error). Exactly one is None. keep_timestamps only
+    affects .vtt input -- see _parse_vtt(); plain .txt has no timing
+    information to preserve either way."""
     if not os.path.exists(path):
         return None, f"File not found: {path}"
     try:
@@ -51,7 +65,7 @@ def load_transcript(path: str) -> str:
         return None, f"Couldn't read {path}: {exc}"
 
     if path.lower().endswith(".vtt"):
-        text = _parse_vtt(raw)
+        text = _parse_vtt(raw, keep_timestamps=keep_timestamps)
     else:
         text = raw.strip()
 

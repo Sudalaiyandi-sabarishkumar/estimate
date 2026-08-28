@@ -1,0 +1,4 @@
+Priya Sharma: Let's talk about notifications for the HR app.
+Priya Sharma: We just need email for now, nothing fancy.
+Arjun Mehta: Got it, email only. What about the leave approval flow?
+Priya Sharma: For leave approvals, we want a single approver, not multiple sign-offs.

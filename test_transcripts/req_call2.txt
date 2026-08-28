@@ -1,0 +1,5 @@
+Priya Sharma: Quick follow-up on notifications.
+Priya Sharma: Actually, let's switch to SMS instead of email for notifications, our users don't check email much.
+Arjun Mehta: Understood, SMS instead of email. And the leave approval flow?
+Priya Sharma: Just to confirm again, single approver is fine for leave approvals, no change there.
+Priya Sharma: One more thing, we'd also like push notifications for urgent leave requests.

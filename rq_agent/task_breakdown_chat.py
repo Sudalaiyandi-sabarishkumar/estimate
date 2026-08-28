@@ -185,6 +185,7 @@ ESTIMATE_RE = re.compile(r"^/estimate\b", re.IGNORECASE)
 SET_REPO_RE = re.compile(r"^/(?:set\s+repo|change\s+repo|new\s+repo)\b", re.IGNORECASE)
 SET_ORG_RE = re.compile(r"^/(?:set\s+org|change\s+org|new\s+org)\b", re.IGNORECASE)
 MOM_RE = re.compile(r"^/mom\s+(.+)$", re.IGNORECASE)
+REQUIREMENTS_RE = re.compile(r"^/requirements\s+(.+)$", re.IGNORECASE)
 ADDCALL_RE = re.compile(r"^/(?:addcall|add-call|add\s+call)\b", re.IGNORECASE)
 LISTCALLS_RE = re.compile(r"^/(?:listcalls|list-calls|list\s+calls)\b", re.IGNORECASE)
 REMOVECALL_RE = re.compile(r"^/(?:removecall|remove-call|remove\s+call|deletecall|delete-call|delete\s+call)\s*(.*)$",
@@ -206,6 +207,9 @@ SKILLS_TEXT = """Available skills:
   /estimate <id>                    Codebase-aware estimate (Frontend/Backend/Mobile/Testing)
   /mom <transcript-file>             Minutes of Meeting + action items from a transcript
                                      (optionally posts to Teams -- see TEAMS_WEBHOOK_URL)
+  /requirements <transcript-file>   Extract cited requirements from a client call into
+                                     per-feature docs (requirements_docs/), merging into
+                                     existing docs and flagging contradictions
   /addcall                          Add a recurring Teams meeting to the automatic
                                      transcript-pull + summarize + post pipeline
   /listcalls                        List configured calls and where each is scheduled
@@ -223,7 +227,7 @@ Anything else you type is just a normal question to the model."""
 # above) -- kept as plain command names/prefixes, not full usage strings, so
 # completing one still leaves room to type the actual <id>/<note>/<file> after it.
 SKILL_COMMANDS = [
-    "/load", "/estimate", "/mom", "/addcall", "/listcalls", "/removecall",
+    "/load", "/estimate", "/mom", "/requirements", "/addcall", "/listcalls", "/removecall",
     "/dependency", "/testcases", "/correct", "/set repo", "/set org", "/skills", "/exit",
 ]
 
@@ -1114,6 +1118,355 @@ def offer_teams_post(title: str, reply: str):
         print(f"Couldn't post to Teams: {error}\n")
 
 
+REQUIREMENTS_DOCS_DIR = "requirements_docs"
+REQUIREMENTS_CHUNK_CHAR_BUDGET = 5000  # same budget /mom settled on after testing
+REQUIREMENTS_NUM_CTX = 12288
+
+# Phase 1 of a 3-phase client-call -> requirements pipeline (Phases 2/3 not
+# built yet: a fixed rubric surfacing missing scenarios as tagged questions,
+# then an interactive session to answer/correct them). The rule that holds
+# across all three phases, enforced here structurally, not just prompted
+# for: NO CITATION, NO STATEMENT. Every fact in a feature doc is backed by
+# an exact quote + speaker + timestamp; the actual doc-writing is pure
+# Python (mechanical, like /mom's merge) so nothing can slip in ungrounded.
+#
+# The model is used for exactly one thing here: extracting quoted
+# statements from one transcript, which it cannot do without a real quote
+# to point at. Deciding whether a new statement is genuinely new, a
+# restatement, or a contradiction of something already documented for that
+# feature was tried as its own narrow, per-feature classification call --
+# three different prompt variants (direct rules, a dedicated reconciliation
+# call, an added worked example) each gave a *different* wrong or
+# internally self-contradictory answer on the same real test case (one
+# even had its own stated reasoning agree with "contradicts" while its
+# verdict field said "duplicate"). That's the same failure signature as
+# /dependency's local-model reasoning -- a genuine capability ceiling, not
+# a prompt-wording problem -- so that decision isn't automated: see
+# generate_requirements_doc(), which flags every new statement against an
+# already-documented feature as NEEDS REVIEW instead of auto-classifying
+# it. This also follows directly from the rule above: an unreliable
+# auto-classification is itself an ungrounded guess, so per "no citation,
+# no statement," it becomes a question for a human instead.
+REQUIREMENTS_SYSTEM_PROMPT = """You are extracting product requirements from a real client \
+call transcript, for a requirements knowledge base that other people will treat as ground truth.
+
+The one rule that matters more than anything else: NO CITATION, NO STATEMENT. Every fact you \
+write down must be backed by an exact, verbatim quote from the transcript you were given -- \
+never paraphrase a quote, never combine separate sentences into one, never infer something \
+someone probably meant. If you cannot point to the exact words that support a fact, it doesn't \
+go in as a fact -- leave it out entirely rather than guess."""
+
+
+def build_requirements_extraction_instruction(known_features: list) -> str:
+    if known_features:
+        features_block = (
+            "Known features from earlier calls: " + ", ".join(known_features) + ".\n"
+            "If a statement clearly belongs to one of these, use that EXACT name (same "
+            "spelling and case) -- do not introduce a near-duplicate name like a rephrasing "
+            "of an existing one. Only introduce a brand new feature name if a statement "
+            "genuinely doesn't fit any of the ones listed."
+        )
+    else:
+        features_block = "No features have been established yet -- this is the first call processed."
+
+    return f"""This is one part of a longer call transcript (not the whole call). {features_block}
+
+For every distinct requirement, decision, or fact actually stated by the client or team in \
+THIS PART, output one block in exactly this format:
+
+## STATEMENT
+Feature: <short feature/topic name>
+Summary: <one-sentence paraphrase of what was stated, for a human skimming later>
+Quote: "<the exact sentence(s) from this transcript part that support it, copied verbatim>"
+Speaker: <the speaker's name exactly as it appears, or "Unidentified speaker" if not attributed>
+Timestamp: <the [HH:MM:SS...] prefix on that line if the transcript has one, or "not available">
+
+Repeat this block for every distinct statement -- however minor, this is raw extraction, not \
+a summary. If this part has no concrete requirement/decision/fact (e.g. only small talk or \
+scheduling), output nothing at all rather than inventing something to fill the space.
+"""
+
+
+def _parse_statement_blocks(text: str) -> list:
+    """Parses '## STATEMENT' blocks (see build_requirements_extraction_instruction
+    for the exact field format) into dicts. A block missing any field, or
+    with an empty quote, is dropped -- an ungrounded half-statement is
+    exactly what this whole feature exists to prevent from reaching a doc."""
+    statements = []
+    for block in text.split("## STATEMENT")[1:]:
+        fields = {}
+        for line in block.splitlines():
+            line = line.strip()
+            for key, label in (("feature", "Feature:"), ("summary", "Summary:"),
+                                ("quote", "Quote:"), ("speaker", "Speaker:"),
+                                ("timestamp", "Timestamp:")):
+                if line.startswith(label) and key not in fields:
+                    value = line[len(label):].strip()
+                    if key == "quote":
+                        value = value.strip('"')
+                    fields[key] = value
+        if all(k in fields for k in ("feature", "summary", "quote", "speaker", "timestamp")) and fields["quote"]:
+            statements.append(fields)
+    return statements
+
+
+_FEATURE_NAME_STOPWORDS = {"a", "an", "the", "for", "in", "on", "of", "to", "and", "or", "app", "flow"}
+
+
+def _normalize_feature_words(name: str) -> set:
+    words = re.findall(r"[a-z0-9]+", name.lower())
+    # crude singular/plural fold (strip a trailing "s" on longer words) so
+    # "approval" and "approvals" count as the same word -- exact-token
+    # matching without this misses the most common near-duplicate case.
+    return {w[:-1] if len(w) > 3 and w.endswith("s") else w
+            for w in words if w not in _FEATURE_NAME_STOPWORDS}
+
+
+def _match_existing_feature(new_name: str, existing_names: list, threshold: float = 0.3) -> str:
+    """Mechanical (no LLM) fuzzy match onto an existing feature name, by
+    word-overlap (Jaccard similarity) -- picks the best match above
+    threshold, or returns new_name unchanged (genuinely new feature)
+    otherwise. This replaces asking the model to "reuse the exact existing
+    name if it fits": testing showed it does not reliably do that even
+    when told to directly, and a dedicated reconciliation call asking it to
+    match new names to existing ones did no better -- one run even gave a
+    self-contradictory verdict (reasoning identified a match, verdict field
+    said "not a match"). A deterministic heuristic won't always agree with
+    what a person would judge on a genuinely ambiguous name, but it's
+    consistent and repeatable, which the model's judgment here was not."""
+    new_words = _normalize_feature_words(new_name)
+    if not new_words:
+        return new_name
+    best_name, best_score = new_name, threshold
+    for existing_name in existing_names:
+        existing_words = _normalize_feature_words(existing_name)
+        if not existing_words:
+            continue
+        overlap = len(new_words & existing_words) / len(new_words | existing_words)
+        if overlap > best_score:
+            best_name, best_score = existing_name, overlap
+    return best_name
+
+
+def _split_doc_sections(doc_text: str) -> dict:
+    """Returns the raw body text under each '## ' heading in an existing
+    feature doc -- '' for a section that doesn't exist yet (a brand new
+    doc). Open Questions and Change Log are kept as opaque text and only
+    ever appended to, never reparsed structurally -- Phase 1 never resolves
+    a question or edits history, only adds to both."""
+    sections = {"established_facts": "", "open_questions": "", "change_log": ""}
+    for m in re.finditer(r"^## (.+?)\n(.*?)(?=\n## |\Z)", doc_text, re.DOTALL | re.MULTILINE):
+        heading = m.group(1).strip().lower()
+        body = m.group(2).strip()
+        if "established facts" in heading:
+            sections["established_facts"] = body
+        elif "open questions" in heading:
+            sections["open_questions"] = body
+        elif "change log" in heading:
+            sections["change_log"] = body
+    return sections
+
+
+_EF_LINE_RE = re.compile(r'^-\s*\*\*EF-(\d+)\*\*:\s*(.+?)\s*—\s*\*"(.+?)"\*\s*—\s*(.+)$')
+
+
+def _parse_established_facts(body: str) -> list:
+    facts = []
+    for line in body.splitlines():
+        m = _EF_LINE_RE.match(line.strip())
+        if m:
+            facts.append({
+                "id": int(m.group(1)),
+                "summary": m.group(2).strip(),
+                "quote": m.group(3).strip(),
+                "attribution": m.group(4).strip(),
+            })
+    return facts
+
+
+def _discover_existing_features() -> dict:
+    """Returns {canonical_feature_name: file_path}, reading each existing
+    doc's H1 heading -- the source of truth for a feature's exact name,
+    not its (lossy, slugified) filename -- so a later call's extraction
+    step can be told to reuse exact existing names instead of drifting."""
+    features = {}
+    if not os.path.isdir(REQUIREMENTS_DOCS_DIR):
+        return features
+    for fname in sorted(os.listdir(REQUIREMENTS_DOCS_DIR)):
+        if not fname.endswith(".md"):
+            continue
+        path = os.path.join(REQUIREMENTS_DOCS_DIR, fname)
+        try:
+            with open(path) as f:
+                first_line = f.readline().strip()
+        except OSError:
+            continue
+        m = re.match(r"^#\s+(.+)$", first_line)
+        if m:
+            features[m.group(1).strip()] = path
+    return features
+
+
+def _slugify_feature_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug or "unnamed-feature"
+
+
+def _render_feature_doc(feature_name: str, established_facts: list, new_question_blocks: list,
+                         existing_open_questions_raw: str, existing_change_log_raw: str,
+                         changelog_entry: str) -> str:
+    ef_lines = "\n".join(
+        f'- **EF-{f["id"]}**: {f["summary"]} — *"{f["quote"]}"* — {f["attribution"]}'
+        for f in established_facts
+    ) or "- None yet."
+
+    # Drop the "- None." placeholder once there's real content to show
+    # instead of it -- otherwise it lingers above newly-added questions
+    # forever once a doc's Open Questions section is no longer empty.
+    if existing_open_questions_raw.strip() in ("- None.", "None.", "None"):
+        existing_open_questions_raw = ""
+    oq_parts = [p for p in (existing_open_questions_raw, "\n\n".join(new_question_blocks)) if p]
+    oq_text = "\n\n".join(oq_parts) if oq_parts else "- None."
+
+    cl_text = "\n".join(p for p in (existing_change_log_raw, changelog_entry) if p)
+
+    return f"""# {feature_name}
+
+## Established Facts
+{ef_lines}
+
+## Open Questions / Ambiguities
+{oq_text}
+
+## Change Log
+{cl_text}
+"""
+
+
+def generate_requirements_doc(messages: list, user_input: str):
+    """/requirements <transcript-file>: Phase 1 of the client-call ->
+    requirements pipeline. Extracts cited statements grouped into
+    auto-discovered per-feature docs (mechanically reconciled onto an
+    existing feature name where one exists -- see _match_existing_feature).
+    A statement for a feature with no prior facts goes straight in as an
+    Established Fact; a statement for a feature that already has documented
+    facts is flagged under 'Open Questions / Ambiguities' as NEEDS REVIEW
+    rather than auto-classified as new/duplicate/contradicting -- see the
+    note above REQUIREMENTS_SYSTEM_PROMPT for why that classification isn't
+    automated."""
+    match = REQUIREMENTS_RE.match(user_input)
+    if not match:
+        print("Usage: /requirements <path-to-transcript-file>\n")
+        return
+    path = match.group(1).strip()
+
+    text, error = load_transcript(path, keep_timestamps=True)
+    if text is None:
+        print(error + "\n")
+        return
+
+    chunks = chunk_transcript(text, max_chars=REQUIREMENTS_CHUNK_CHAR_BUDGET)
+    existing_features = _discover_existing_features()
+
+    print(f"Extracting cited statements from {len(chunks)} part(s)...")
+    all_statements = []
+    req_messages = [{"role": "system", "content": REQUIREMENTS_SYSTEM_PROMPT}]
+    for i, chunk in enumerate(chunks):
+        print(f"  Part {i + 1}/{len(chunks)}...")
+        instruction = build_requirements_extraction_instruction(list(existing_features.keys()))
+        prompt = f"TRANSCRIPT PART {i + 1} of {len(chunks)}:\n{chunk}\n\n{instruction}"
+        reply = call_ollama(req_messages + [{"role": "user", "content": prompt}],
+                             DEFAULT_MODEL, num_ctx=REQUIREMENTS_NUM_CTX, show_progress=False,
+                             temperature=0)
+        if reply:
+            all_statements.extend(_parse_statement_blocks(reply))
+
+    if not all_statements:
+        print("No concrete, citable statements were found in this transcript.\n")
+        return
+
+    # Mechanically reconcile onto an existing feature name where the words
+    # overlap enough -- the model doesn't reliably reuse an exact existing
+    # name on its own even when asked to (see _match_existing_feature).
+    known_feature_names = list(existing_features.keys())
+    for s in all_statements:
+        s["feature"] = _match_existing_feature(s["feature"], known_feature_names)
+
+    by_feature = {}
+    for s in all_statements:
+        by_feature.setdefault(s["feature"], []).append(s)
+
+    base_name = os.path.splitext(os.path.basename(path))[0]
+    today = datetime.now().strftime("%Y-%m-%d")
+    os.makedirs(REQUIREMENTS_DOCS_DIR, exist_ok=True)
+
+    summary_lines = []
+    for feature_name, new_statements in by_feature.items():
+        existing_path = existing_features.get(feature_name)
+        if existing_path:
+            with open(existing_path) as f:
+                sections = _split_doc_sections(f.read())
+            existing_facts = _parse_established_facts(sections["established_facts"])
+        else:
+            existing_path = os.path.join(REQUIREMENTS_DOCS_DIR, f"{_slugify_feature_name(feature_name)}.md")
+            sections = {"established_facts": "", "open_questions": "", "change_log": ""}
+            existing_facts = []
+
+        next_ef_id = max([f["id"] for f in existing_facts], default=0) + 1
+        new_facts, new_question_blocks = [], []
+        n_new = n_review = 0
+
+        for i, s in enumerate(new_statements, start=1):
+            attribution = f"{s['speaker']}, {s['timestamp']}"
+
+            if not existing_facts:
+                # Nothing to compare against yet for this feature -- goes
+                # straight in, no review needed.
+                new_facts.append({
+                    "id": next_ef_id, "summary": s["summary"],
+                    "quote": s["quote"], "attribution": attribution,
+                })
+                next_ef_id += 1
+                n_new += 1
+                continue
+
+            # An existing feature already has documented facts. Telling
+            # "genuinely new" apart from "restates an existing fact" apart
+            # from "contradicts an existing fact" needs real semantic
+            # judgment -- see the note above REQUIREMENTS_SYSTEM_PROMPT for
+            # why that isn't automated here. Flag it for a human instead of
+            # guessing; this is also exactly the queue Phase 3 (not built
+            # yet) is meant to work through.
+            existing_summary = "; ".join(f'EF-{f["id"]}: {f["summary"]}' for f in existing_facts)
+            q_id = f"Q-{today}-{i}"
+            new_question_blocks.append(
+                f'- **{q_id}** [NEEDS REVIEW]: New statement for "{feature_name}" -- confirm '
+                f'whether this is new information, a restatement of an existing fact, or a '
+                f'change to one.\n'
+                f'  - New: *"{s["quote"]}"* — {attribution}\n'
+                f'  - Existing facts on this feature: {existing_summary}'
+            )
+            n_review += 1
+
+        changelog_entry = (f"- {today}: Processed {base_name} — {n_new} new fact(s) added, "
+                            f"{n_review} statement(s) flagged for review against existing facts")
+        doc_text = _render_feature_doc(
+            feature_name, existing_facts + new_facts, new_question_blocks,
+            sections["open_questions"], sections["change_log"], changelog_entry)
+        with open(existing_path, "w") as f:
+            f.write(doc_text)
+
+        summary_lines.append(
+            f"- {feature_name}: {n_new} new, {n_review} flagged for review -> {existing_path}")
+
+    messages.append({"role": "user", "content": f"(Processed transcript for requirements: {path})"})
+    messages.append({"role": "assistant", "content": "Updated feature docs:\n" + "\n".join(summary_lines)})
+
+    print("\nDone:")
+    print("\n".join(summary_lines))
+    print()
+
+
 # Kept as a literal here rather than imported from auto_mom.py, which
 # imports run_mom_pipeline from *this* module -- importing back the other
 # way would be circular. Keep this in sync with auto_mom.MEETINGS_CONFIG_FILE
@@ -1526,6 +1879,10 @@ def main():
 
             if MOM_RE.match(user_input):
                 generate_mom(messages, user_input)
+                continue
+
+            if REQUIREMENTS_RE.match(user_input):
+                generate_requirements_doc(messages, user_input)
                 continue
 
             if ADDCALL_RE.match(user_input):
